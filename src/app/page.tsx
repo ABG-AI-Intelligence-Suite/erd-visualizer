@@ -17,7 +17,8 @@ export default function Home() {
   const filters = useCanvasStore((s) => s.filters);
   const connection = useCanvasStore((s) => s.connection);
 
-  const { fetchAll, getFilteredGraph, loading, loadMockData } = useAepData();
+  const error = useCanvasStore((s) => s.error);
+  const { fetchAll, getFilteredGraph, loading, error: fetchError, loadMockData } = useAepData();
 
   const handleConnect = useCallback(
     async (config: AepConnectionConfig) => {
@@ -34,6 +35,8 @@ export default function Home() {
     },
     [fetchAll, setConnection, setIsLoading, setError]
   );
+
+  const displayError = error || fetchError;
 
   const handleLoadSample = useCallback(() => {
     loadMockData(getMockTransformInput());
@@ -78,6 +81,30 @@ export default function Home() {
           <div className="text-center">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-sm text-gray-600 mt-2">Fetching AEP data...</p>
+          </div>
+        </div>
+      )}
+      {displayError && !loading && (
+        <div className="absolute left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4" style={{ top: 72 }}>
+          <div className="bg-red-50 border border-red-300 rounded-lg p-4 shadow-lg">
+            <div className="flex items-start gap-3">
+              <span className="text-red-500 text-xl leading-none mt-0.5">!</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-red-800">Connection Error</h3>
+                <p className="text-sm text-red-700 mt-1 whitespace-pre-wrap break-words font-mono">
+                  {displayError}
+                </p>
+                <p className="text-xs text-red-500 mt-2">
+                  Check the browser console (F12) and the terminal for more details.
+                </p>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="text-red-400 hover:text-red-600 text-lg leading-none"
+              >
+                &times;
+              </button>
+            </div>
           </div>
         </div>
       )}

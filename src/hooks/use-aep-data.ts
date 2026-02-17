@@ -7,6 +7,11 @@ import { useSchemas } from "./use-schemas";
 import { useFieldGroups } from "./use-field-groups";
 import { useFlows } from "./use-flows";
 
+function getSettledError(result: PromiseRejectedResult): string {
+  const reason = result.reason;
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 export function useAepData() {
   const { fetchDatasets } = useDatasets();
   const { fetchSchemas } = useSchemas();
@@ -23,13 +28,22 @@ export function useAepData() {
       setLoading(true);
       setError(null);
       try {
-        const [datasets, schemaResult, fieldGroups, flowResult] =
-          await Promise.all([
-            fetchDatasets(config),
-            fetchSchemas(config),
-            fetchFieldGroups(config),
-            fetchFlows(config),
-          ]);
+        const results = await Promise.allSettled([
+          fetchDatasets(config),
+          fetchSchemas(config),
+          fetchFieldGroups(config),
+          fetchFlows(config),
+        ]);
+
+        const errors: string[] = [];
+        const datasets = results[0].status === "fulfilled" ? results[0].value : (errors.push(getSettledError(results[0])), []);
+        const schemaResult = results[1].status === "fulfilled" ? results[1].value : (errors.push(getSettledError(results[1])), { schemas: [], descriptors: [] });
+        const fieldGroups = results[2].status === "fulfilled" ? results[2].value : (errors.push(getSettledError(results[2])), []);
+        const flowResult = results[3].status === "fulfilled" ? results[3].value : (errors.push(getSettledError(results[3])), { flows: [], connections: [] });
+
+        if (errors.length > 0) {
+          setError(errors.join("\n\n"));
+        }
 
         const { nodes: n, edges: e } = transformToGraph({
           datasets,

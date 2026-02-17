@@ -23,15 +23,20 @@ export function useFieldGroups() {
         "/api/aep/schemaregistry/tenant/fieldgroups?orderby=title&limit=200",
         { headers: proxyHeaders(config) }
       );
-      if (!res.ok) throw new Error(`Field Groups API error: ${res.status}`);
       const data = await res.json();
+      if (!res.ok) {
+        console.error(`[FieldGroups] API error ${res.status}:`, JSON.stringify(data, null, 2));
+        throw new Error(
+          `Field Groups API error ${res.status}: ${data?.detail?.title || data?.detail?.detail || data?.error || res.statusText} | URL: ${data?.url || "unknown"}`
+        );
+      }
       const list: AepFieldGroup[] = data.results ?? [];
       setFieldGroups(list);
       return list;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch field groups";
       setError(msg);
-      return [];
+      throw err;
     } finally {
       setLoading(false);
     }

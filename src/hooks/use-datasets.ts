@@ -20,11 +20,16 @@ export function useDatasets() {
     setError(null);
     try {
       const res = await fetch(
-        "/api/aep/catalog/dataSets?limit=200&properties=name,description,schemaRef,tags,unifiedProfile,unifiedIdentity,fileDescription",
+        "/api/aep/catalog/dataSets?limit=100&properties=name,description,schemaRef,tags,unifiedProfile,unifiedIdentity,fileDescription",
         { headers: proxyHeaders(config) }
       );
-      if (!res.ok) throw new Error(`Catalog API error: ${res.status}`);
       const data = await res.json();
+      if (!res.ok) {
+        console.error(`[Datasets] API error ${res.status}:`, JSON.stringify(data, null, 2));
+        throw new Error(
+          `Catalog API error ${res.status}: ${data?.detail?.title || data?.detail?.detail || data?.error || res.statusText} | URL: ${data?.url || "unknown"}`
+        );
+      }
       // Catalog returns { id: dataset, ... } — flatten to array
       const list: AepDataset[] = Object.entries(data)
         .filter(([key]) => !key.startsWith("_"))
@@ -34,7 +39,7 @@ export function useDatasets() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch datasets";
       setError(msg);
-      return [];
+      throw err;
     } finally {
       setLoading(false);
     }

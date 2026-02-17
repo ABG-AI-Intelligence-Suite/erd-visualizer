@@ -27,8 +27,13 @@ export function useFlows() {
         fetch("/api/aep/flowservice/connections?limit=200", { headers }),
       ]);
 
-      if (!flowsRes.ok) throw new Error(`Flows API error: ${flowsRes.status}`);
       const flowsData = await flowsRes.json();
+      if (!flowsRes.ok) {
+        console.error(`[Flows] API error ${flowsRes.status}:`, JSON.stringify(flowsData, null, 2));
+        throw new Error(
+          `Flows API error ${flowsRes.status}: ${flowsData?.detail?.title || flowsData?.detail?.detail || flowsData?.error || flowsRes.statusText} | URL: ${flowsData?.url || "unknown"}`
+        );
+      }
       const flowList: AepFlow[] = flowsData.items ?? [];
       setFlows(flowList);
 
@@ -37,13 +42,16 @@ export function useFlows() {
         const connData = await connectionsRes.json();
         connectionList = connData.items ?? [];
         setConnections(connectionList);
+      } else {
+        const connErr = await connectionsRes.json();
+        console.warn(`[Connections] API error ${connectionsRes.status}:`, JSON.stringify(connErr, null, 2));
       }
 
       return { flows: flowList, connections: connectionList };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch flows";
       setError(msg);
-      return { flows: [], connections: [] };
+      throw err;
     } finally {
       setLoading(false);
     }

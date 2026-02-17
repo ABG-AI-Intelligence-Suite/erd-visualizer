@@ -28,13 +28,18 @@ export function useSchemas() {
           { headers }
         ),
         fetch(
-          "/api/aep/schemaregistry/tenant/descriptors?limit=500",
+          "/api/aep/schemaregistry/tenant/descriptors?limit=300",
           { headers }
         ),
       ]);
 
-      if (!schemasRes.ok) throw new Error(`Schema API error: ${schemasRes.status}`);
       const schemasData = await schemasRes.json();
+      if (!schemasRes.ok) {
+        console.error(`[Schemas] API error ${schemasRes.status}:`, JSON.stringify(schemasData, null, 2));
+        throw new Error(
+          `Schema API error ${schemasRes.status}: ${schemasData?.detail?.title || schemasData?.detail?.detail || schemasData?.error || schemasRes.statusText} | URL: ${schemasData?.url || "unknown"}`
+        );
+      }
       const schemaList: AepSchema[] = schemasData.results ?? [];
       setSchemas(schemaList);
 
@@ -43,13 +48,16 @@ export function useSchemas() {
         const descData = await descriptorsRes.json();
         descriptorList = descData.results ?? [];
         setDescriptors(descriptorList);
+      } else {
+        const descErr = await descriptorsRes.json();
+        console.warn(`[Descriptors] API error ${descriptorsRes.status}:`, JSON.stringify(descErr, null, 2));
       }
 
       return { schemas: schemaList, descriptors: descriptorList };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch schemas";
       setError(msg);
-      return { schemas: [], descriptors: [] };
+      throw err;
     } finally {
       setLoading(false);
     }
