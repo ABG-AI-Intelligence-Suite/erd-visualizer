@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { AepConnectionConfig, AepConnection, AepSchema } from "@/lib/types";
 import { transformToGraph, type TransformInput } from "@/lib/transform";
+import type { Node, Edge } from "@xyflow/react";
 import { useDatasets } from "./use-datasets";
 import { useSchemas } from "./use-schemas";
 import { useFieldGroups } from "./use-field-groups";
@@ -14,6 +15,89 @@ function getSettledError(result: PromiseRejectedResult): string {
 }
 
 const NS_PREFIX = "https://ns.adobe.com/";
+const GRAPH_CACHE_KEY = "aep-erd:last-graph:v1";
+const GRAPH_CACHE_META_KEY = "aep-erd:last-graph:meta:v2";
+const GRAPH_CACHE_DB_NAME = "aep-erd-cache";
+const GRAPH_CACHE_STORE = "graphs";
+const GRAPH_CACHE_RECORD_KEY = "last-graph-v2";
+
+interface CachedGraph {
+  version: 1;
+  createdAt: number;
+  orgId: string;
+  sandbox: string;
+  nodes: Node[];
+  edges: Edge[];
+}
+
+interface CachedGraphV2 {
+  version: 2;
+  createdAt: number;
+  orgId: string;
+  sandbox: string;
+  nodes: Node[];
+  edges: Edge[];
+}
+
+interface CachedGraphMeta {
+  version: 2;
+  createdAt: number;
+  orgId: string;
+  sandbox: string;
+  nodeCount: number;
+  edgeCount: number;
+}
+
+function openGraphCacheDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(GRAPH_CACHE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(GRAPH_CACHE_STORE)) {
+        db.createObjectStore(GRAPH_CACHE_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Failed to open cache database"));
+  });
+}
+
+function readGraphFromIndexedDb(): Promise<CachedGraphV2 | null> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || !("indexedDB" in window)) {
+      resolve(null);
+      return;
+    }
+    openGraphCacheDb()
+      .then((db) => {
+        const tx = db.transaction(GRAPH_CACHE_STORE, "readonly");
+        const store = tx.objectStore(GRAPH_CACHE_STORE);
+        const request = store.get(GRAPH_CACHE_RECORD_KEY);
+        request.onsuccess = () => {
+          const value = request.result as CachedGraphV2 | undefined;
+          resolve(value && value.version === 2 ? value : null);
+        };
+        request.onerror = () => resolve(null);
+        tx.oncomplete = () => db.close();
+        tx.onerror = () => db.close();
+      })
+      .catch(() => resolve(null));
+  });
+}
+
+function writeGraphToIndexedDb(payload: CachedGraphV2) {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return;
+  openGraphCacheDb()
+    .then((db) => {
+      const tx = db.transaction(GRAPH_CACHE_STORE, "readwrite");
+      tx.objectStore(GRAPH_CACHE_STORE).put(payload, GRAPH_CACHE_RECORD_KEY);
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+    })
+    .catch(() => {
+    });
+}
+
 function buildSchemaIdSet(schemas: AepSchema[]): Set<string> {
   const ids = new Set<string>();
   schemas.forEach((s) => {
@@ -21,9 +105,78 @@ function buildSchemaIdSet(schemas: AepSchema[]): Set<string> {
     if (s["meta:altId"]) ids.add(s["meta:altId"]);
     if (s.$id.startsWith(NS_PREFIX)) {
       ids.add("_" + s.$id.slice(NS_PREFIX.length));
+    } else if (s.$id.startsWith("_")) {
+      ids.add(NS_PREFIX + s.$id.slice(1));
     }
   });
   return ids;
+}
+
+function buildSchemaIdLookup(schemas: AepSchema[]): Map<string, string> {
+  const lookup = new Map<string, string>();
+  for (let i = 0; i < schemas.length; i++) {
+    const schema = schemas[i];
+    lookup.set(schema.$id, schema.$id);
+    if (schema["meta:altId"]) lookup.set(schema["meta:altId"], schema.$id);
+    if (schema.$id.startsWith(NS_PREFIX)) lookup.set("_" + schema.$id.slice(NS_PREFIX.length), schema.$id);
+    if (schema.$id.startsWith("_")) lookup.set(NS_PREFIX + schema.$id.slice(1), schema.$id);
+  }
+  return lookup;
+}
+
+function saveGraphToCache(orgId: string, sandbox: string, nodes: Node[], edges: Edge[]) {
+  if (typeof window === "undefined") return;
+  const payload: CachedGraphV2 = {
+    version: 2,
+    createdAt: Date.now(),
+    orgId,
+    sandbox,
+    nodes,
+    edges,
+  };
+  const meta: CachedGraphMeta = {
+    version: 2,
+    createdAt: payload.createdAt,
+    orgId,
+    sandbox,
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+  };
+  window.localStorage.setItem(GRAPH_CACHE_META_KEY, JSON.stringify(meta));
+  // Large graph payloads in localStorage are synchronous and can freeze UI on restore.
+  window.localStorage.removeItem(GRAPH_CACHE_KEY);
+  writeGraphToIndexedDb(payload);
+}
+
+function readGraphFromCache(): CachedGraph | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(GRAPH_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedGraph;
+    if (!parsed || parsed.version !== 1) return null;
+    if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function readGraphFromCacheAsync(): Promise<CachedGraphV2 | CachedGraph | null> {
+  if (typeof window === "undefined") return null;
+  const cachedV2 = await readGraphFromIndexedDb();
+  if (cachedV2) return cachedV2;
+  return readGraphFromCache();
+}
+
+function applyGraphOnNextFrame(setGraph: (nodes: Node[], edges: Edge[]) => void, nodes: Node[], edges: Edge[]) {
+  if (typeof window === "undefined") {
+    setGraph(nodes, edges);
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    setGraph(nodes, edges);
+  });
 }
 
 export function useAepData() {
@@ -125,14 +278,12 @@ export function useAepData() {
 
         allConnections = Array.from(connMap.values());
 
+        const schemaIdLookup = buildSchemaIdLookup(allSchemas);
         const referencedSchemaIds = new Set<string>();
         datasets.forEach((ds) => {
           if (ds.schemaRef?.id) {
-            const rawId = ds.schemaRef.id;
-            const found = allSchemas.find(
-              (s) => s.$id === rawId || s["meta:altId"] === rawId
-            );
-            if (found) referencedSchemaIds.add(found.$id);
+            const canonicalId = schemaIdLookup.get(ds.schemaRef.id);
+            if (canonicalId) referencedSchemaIds.add(canonicalId);
           }
         });
 
@@ -159,6 +310,7 @@ export function useAepData() {
         });
 
         setGraph(nodes, edges);
+        saveGraphToCache(config.orgId, config.sandbox, nodes, edges);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to fetch AEP data";
         setError(msg);
@@ -172,7 +324,27 @@ export function useAepData() {
   const loadMockData = useCallback((input: TransformInput) => {
     const { nodes, edges } = transformToGraph(input);
     setGraph(nodes, edges);
+    saveGraphToCache("mock", "mock", nodes, edges);
   }, [setGraph]);
 
-  return { loading, error, fetchAll, loadMockData };
+  const restoreCachedGraph = useCallback(async () => {
+    setLoading(true);
+    try {
+      const cached = await readGraphFromCacheAsync();
+      if (!cached) return null;
+      if (cached.version === 1) {
+        saveGraphToCache(cached.orgId, cached.sandbox, cached.nodes, cached.edges);
+      }
+      applyGraphOnNextFrame(setGraph, cached.nodes, cached.edges);
+      return {
+        orgId: cached.orgId,
+        sandbox: cached.sandbox,
+        createdAt: cached.createdAt,
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, [setGraph]);
+
+  return { loading, error, fetchAll, loadMockData, restoreCachedGraph };
 }

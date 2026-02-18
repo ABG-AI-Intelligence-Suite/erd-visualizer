@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import type { Node, Edge } from "@xyflow/react";
-import type { AepConnectionConfig, EntityFilterKey, FilterState } from "@/lib/types";
+import type {
+  AepConnectionConfig,
+  EntityFilterKey,
+  FilterState,
+  ViewMode,
+} from "@/lib/types";
 
 interface CanvasStore {
   connection: AepConnectionConfig | null;
@@ -9,6 +14,8 @@ interface CanvasStore {
 
   filters: FilterState;
   toggleFilter: (type: keyof FilterState) => void;
+  viewMode: ViewMode;
+  setViewMode: (mode: ViewMode) => void;
 
   selectedNodeId: string | null;
   setSelectedNode: (id: string | null) => void;
@@ -24,6 +31,8 @@ interface CanvasStore {
 
   focusNodeId: string | null;
   setFocusNode: (id: string | null) => void;
+  focusExpansionStep: number;
+  loadMoreFocusResults: () => void;
 
   collapsed: Record<EntityFilterKey, boolean>;
   toggleCollapse: (type: EntityFilterKey) => void;
@@ -55,6 +64,8 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
     set((state) => ({
       filters: { ...state.filters, [type]: !state.filters[type] },
     })),
+  viewMode: "full",
+  setViewMode: (mode) => set({ viewMode: mode }),
 
   selectedNodeId: null,
   setSelectedNode: (id) => set({ selectedNodeId: id }),
@@ -69,7 +80,16 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
 
   focusNodeId: null,
-  setFocusNode: (id) => set({ focusNodeId: id, selectedNodeId: id }),
+  setFocusNode: (id) => set({
+    focusNodeId: id,
+    selectedNodeId: id,
+    focusExpansionStep: id ? 1 : 0,
+  }),
+  focusExpansionStep: 0,
+  loadMoreFocusResults: () =>
+    set((state) => ({
+      focusExpansionStep: state.focusNodeId ? state.focusExpansionStep + 1 : 0,
+    })),
 
   collapsed: {
     datasets: false,

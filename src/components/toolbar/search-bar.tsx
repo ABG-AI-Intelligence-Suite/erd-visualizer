@@ -6,6 +6,12 @@ import { useCanvasStore } from "@/store/canvas-store";
 import type { Node } from "@xyflow/react";
 
 const MAX_SEARCH_RESULTS = 20;
+const TYPE_COLORS: Record<string, string> = {
+  datasetNode: "bg-dataset",
+  schemaNode: "bg-schema",
+  fieldGroupNode: "bg-fieldgroup",
+  flowNode: "bg-flow",
+};
 
 interface SearchBarProps {
   nodes: Node[];
@@ -105,15 +111,22 @@ export function SearchBar({ nodes }: SearchBarProps) {
     setHighlightIndex(0);
   }, [searchQuery]);
 
-  const typeColors: Record<string, string> = {
-    datasetNode: "bg-dataset",
-    schemaNode: "bg-schema",
-    fieldGroupNode: "bg-fieldgroup",
-    flowNode: "bg-flow",
-  };
-
   return (
-    <div className="relative">
+    <div className="relative w-full max-w-[360px]">
+      <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="h-3.5 w-3.5"
+          aria-hidden
+        >
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+      </div>
       <input
         ref={inputRef}
         type="text"
@@ -125,12 +138,15 @@ export function SearchBar({ nodes }: SearchBarProps) {
         onFocus={() => setIsOpen(true)}
         onKeyDown={handleKeyDown}
         placeholder="Search nodes..."
-        className="border border-gray-300 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="h-8 w-full rounded-md border border-slate-300 bg-white pl-8 pr-16 text-[11px] text-slate-700 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
       />
+      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-medium uppercase tracking-wide text-slate-400">
+        Enter
+      </span>
       {isOpen && results.length > 0 && (
         <div
           ref={dropdownRef}
-          className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-72 overflow-y-auto"
+          className="absolute left-0 top-full z-50 mt-1.5 max-h-80 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
         >
           {results.map((node, i) => {
             const label = (node.data as { label?: string })?.label ?? node.id;
@@ -138,25 +154,27 @@ export function SearchBar({ nodes }: SearchBarProps) {
             return (
               <div
                 key={node.id}
-                className={`flex items-center justify-between px-3 py-2 text-xs cursor-pointer ${
-                  i === highlightIndex ? "bg-blue-50" : "hover:bg-gray-50"
+                className={`group flex items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors ${
+                  i === highlightIndex ? "bg-blue-50" : "hover:bg-slate-50"
                 }`}
                 onMouseEnter={() => setHighlightIndex(i)}
               >
                 <div
-                  className="flex items-center gap-2 flex-1 min-w-0"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"
                   onClick={() => handleSelect(node)}
                 >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${typeColors[node.type ?? ""] ?? "bg-gray-300"}`} />
-                  <span className="truncate">{label}</span>
-                  <span className="text-[10px] text-gray-400 shrink-0">{entityType}</span>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${TYPE_COLORS[node.type ?? ""] ?? "bg-gray-300"}`} />
+                  <span className="truncate text-slate-700">{label}</span>
+                  <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-500">
+                    {entityType}
+                  </span>
                 </div>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     handleFocus(node);
                   }}
-                  className="ml-2 text-[10px] text-blue-600 hover:underline shrink-0"
+                  className="ml-2 shrink-0 rounded border border-blue-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600 transition-colors hover:bg-blue-50"
                   title="Focus on this node and its connections"
                 >
                   Focus
@@ -167,8 +185,8 @@ export function SearchBar({ nodes }: SearchBarProps) {
         </div>
       )}
       {isOpen && searchQuery.length >= 2 && results.length === 0 && (
-        <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 p-3">
-          <p className="text-xs text-gray-400">No results</p>
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-full rounded-lg border border-slate-200 bg-white p-2.5 shadow-lg">
+          <p className="text-[11px] text-slate-500">No matching nodes found.</p>
         </div>
       )}
     </div>

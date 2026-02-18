@@ -11,6 +11,15 @@ function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   };
 }
 
+function dedupeFieldGroupsById(items: AepFieldGroup[]): AepFieldGroup[] {
+  const map = new Map<string, AepFieldGroup>();
+  for (let i = 0; i < items.length; i++) {
+    const fieldGroup = items[i];
+    map.set(fieldGroup.$id, fieldGroup);
+  }
+  return Array.from(map.values());
+}
+
 export function useFieldGroups() {
   const [fieldGroups, setFieldGroups] = useState<AepFieldGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,10 +31,18 @@ export function useFieldGroups() {
     try {
       const headers = proxyHeaders(config);
 
-      const list = await paginateSchemaRegistry<AepFieldGroup>({
+      const [tenantList, globalList] = await Promise.all([
+        paginateSchemaRegistry<AepFieldGroup>({
         url: "/api/aep/schemaregistry/tenant/fieldgroups?orderby=title&limit=200",
         headers,
-      });
+        }),
+        paginateSchemaRegistry<AepFieldGroup>({
+          url: "/api/aep/schemaregistry/global/fieldgroups?orderby=title&limit=200",
+          headers,
+        }).catch(() => [] as AepFieldGroup[]),
+      ]);
+
+      const list = dedupeFieldGroupsById([...tenantList, ...globalList]);
 
       setFieldGroups(list);
       return list;

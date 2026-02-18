@@ -208,6 +208,7 @@ export interface RelationshipEdgeData {
 }
 
 export type EntityFilterKey = "datasets" | "schemas" | "fieldGroups" | "flows";
+export type ViewMode = "full" | "schema";
 
 export interface FilterState {
   datasets: boolean;

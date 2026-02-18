@@ -4,6 +4,17 @@ interface PaginateOpts {
   maxPages?: number;
 }
 
+function formatApiErrorMessage(status: number, url: string): string {
+  const endpoint = url.split("?")[0];
+  if (status === 401) {
+    return `Authentication failed (401) for ${endpoint}. Check bearer token, org ID, API key, and sandbox.`;
+  }
+  if (status === 403) {
+    return `Access denied (403) for ${endpoint}. Confirm your integration has required AEP permissions.`;
+  }
+  return `API error ${status} for ${endpoint}.`;
+}
+
 export async function paginateSchemaRegistry<T>(
   opts: PaginateOpts
 ): Promise<T[]> {
@@ -16,7 +27,7 @@ export async function paginateSchemaRegistry<T>(
   for (let page = 0; url && page < maxPages; page++) {
     const res: Response = await fetch(url, { headers });
     if (!res.ok) {
-      if (page === 0) throw new Error(`API error ${res.status}`);
+      if (page === 0) throw new Error(formatApiErrorMessage(res.status, url));
       if (retries < maxRetries) {
         retries++;
         page--; // retry same page
@@ -55,7 +66,7 @@ export async function paginateCatalog<T>(
     const url = `${opts.url}${separator}start=${start}`;
     const res = await fetch(url, { headers });
     if (!res.ok) {
-      if (page === 0) throw new Error(`API error ${res.status}`);
+      if (page === 0) throw new Error(formatApiErrorMessage(res.status, url));
       break;
     }
     const data = await res.json();
@@ -79,7 +90,7 @@ export async function paginateFlowService<T>(
   for (let page = 0; url && page < maxPages; page++) {
     const res: Response = await fetch(url, { headers });
     if (!res.ok) {
-      if (page === 0) throw new Error(`API error ${res.status}`);
+      if (page === 0) throw new Error(formatApiErrorMessage(res.status, url));
       break;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

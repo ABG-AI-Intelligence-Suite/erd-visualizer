@@ -32,7 +32,6 @@ function RelationshipEdgeComponent(props: EdgeProps) {
   const d = data as unknown as RelationshipEdgeData | undefined;
   const relType = d?.relationshipType ?? "dataset-schema";
   const lineStyle = STYLE_MAP[relType] ?? STYLE_MAP["dataset-schema"];
-
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -42,19 +41,14 @@ function RelationshipEdgeComponent(props: EdgeProps) {
     targetPosition,
     borderRadius: 8,
   });
-
-  const label = d?.label ?? "";
+  const fkLabel = d?.fkLabel?.trim();
+  const pkLabel = d?.pkLabel?.trim();
+  const hasFk = Boolean(fkLabel);
+  const hasPk = Boolean(pkLabel);
+  const LABEL_OFFSET = 12;
 
   return (
-    <g className="react-flow__edge-interaction">
-      {/* Wide invisible hit area */}
-      <path
-        d={edgePath}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={14}
-        style={{ cursor: "pointer" }}
-      />
+    <g>
       <BaseEdge
         path={edgePath}
         markerEnd={markerEnd}
@@ -63,33 +57,42 @@ function RelationshipEdgeComponent(props: EdgeProps) {
           stroke: lineStyle.stroke,
           strokeDasharray: lineStyle.strokeDasharray,
           strokeWidth: 1.5,
-          pointerEvents: "none",
         }}
       />
-      {/* SVG label — lives in the same transform layer, zero repositioning cost */}
-      {label && (
-        <g transform={`translate(${labelX}, ${labelY})`} className="edge-svg-label">
-          <rect
-            x={-(label.length * 3.5 + 8)}
-            y={-9}
-            width={label.length * 7 + 16}
-            height={18}
-            rx={9}
-            fill="white"
-            stroke="#d1d5db"
-            strokeWidth={1}
-          />
-          <text
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={10}
-            fill="#4b5563"
-            style={{ pointerEvents: "none", userSelect: "none" }}
-          >
-            {label}
-          </text>
-        </g>
-      )}
+      {hasFk ? (
+        <text
+          x={labelX}
+          y={hasPk ? labelY - LABEL_OFFSET : labelY}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize={10}
+          fontWeight={600}
+          fill="#111827"
+          stroke="#f8fafc"
+          strokeWidth={3}
+          paintOrder="stroke"
+          pointerEvents="none"
+        >
+          {fkLabel}
+        </text>
+      ) : null}
+      {hasPk ? (
+        <text
+          x={labelX}
+          y={hasFk ? labelY + LABEL_OFFSET : labelY}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize={10}
+          fontWeight={600}
+          fill="#111827"
+          stroke="#f8fafc"
+          strokeWidth={3}
+          paintOrder="stroke"
+          pointerEvents="none"
+        >
+          {pkLabel}
+        </text>
+      ) : null}
     </g>
   );
 }

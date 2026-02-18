@@ -22,18 +22,18 @@ interface FilterControlsProps {
 
 export function FilterControls({ filters, onToggle, collapsed, onToggleCollapse }: FilterControlsProps) {
   return (
-    <div className="flex flex-col gap-1.5">
-      {/* Row 1: Entity type toggles */}
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] text-gray-500 uppercase font-medium">Show:</span>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Show</span>
+      <div className="mx-1 h-4 w-px bg-slate-200" />
+      <div className="flex flex-wrap items-center gap-1.5">
         {FILTER_CONFIG.map(({ key, label, color }) => (
-          <div key={key} className="flex items-center gap-0.5">
+          <div key={key} className="flex items-center">
             <button
               onClick={() => onToggle(key)}
-              className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-l border transition-all ${
+              className={`inline-flex h-7 items-center gap-1 rounded-l-md border px-2 text-[11px] font-medium transition-all ${
                 filters[key]
-                  ? "border-gray-300 bg-white text-gray-700"
-                  : "border-gray-200 bg-gray-100 text-gray-400 line-through"
+                  ? "border-slate-300 bg-white text-slate-700 shadow-sm"
+                  : "border-slate-200 bg-slate-100 text-slate-400 line-through"
               }`}
             >
               <span
@@ -47,10 +47,10 @@ export function FilterControls({ filters, onToggle, collapsed, onToggleCollapse 
               <button
                 onClick={() => onToggleCollapse(key)}
                 title={collapsed[key] ? "Expand all" : "Collapse into summary"}
-                className={`text-[10px] px-1.5 py-1 border rounded-r transition-all ${
+                className={`inline-flex h-7 items-center rounded-r-md border border-l-0 px-1.5 text-[10px] font-semibold transition-all ${
                   collapsed[key]
-                    ? "bg-gray-700 text-white border-gray-700"
-                    : "bg-white text-gray-500 border-gray-300 hover:bg-gray-50"
+                    ? "border-slate-700 bg-slate-700 text-white"
+                    : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50"
                 }`}
               >
                 {collapsed[key] ? "+" : "-"}
@@ -59,33 +59,29 @@ export function FilterControls({ filters, onToggle, collapsed, onToggleCollapse 
           </div>
         ))}
       </div>
-
-      {/* Row 2: Advanced filters */}
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] text-gray-500 uppercase font-medium">Filter:</span>
-
-        {/* Profile Only — only shown when datasets are visible */}
+      <div className="mx-1 h-4 w-px bg-slate-200" />
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Filter</span>
+      <div className="flex flex-wrap items-center gap-1.5">
         {filters.datasets && (
           <button
             onClick={() => onToggle("profileOnly")}
-            className={`text-xs px-2 py-1 rounded border transition-all ${
+            className={`inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium transition-all ${
               filters.profileOnly
                 ? "bg-dataset text-white border-dataset"
-                : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
             Profile Only
           </button>
         )}
 
-        {/* Connected Flows Only — only shown when flows are visible */}
         {filters.flows && (
           <button
             onClick={() => onToggle("connectedFlowsOnly")}
-            className={`text-xs px-2 py-1 rounded border transition-all ${
+            className={`inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium transition-all ${
               filters.connectedFlowsOnly
                 ? "bg-flow text-white border-flow"
-                : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
             Connected Flows Only

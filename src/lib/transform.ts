@@ -42,6 +42,20 @@ function buildSchemaIdLookup(schemas: AepSchema[]): Map<string, string> {
   return lookup;
 }
 
+function buildFieldGroupIdLookup(fieldGroups: AepFieldGroup[]): Map<string, string> {
+  const lookup = new Map<string, string>();
+  for (let i = 0; i < fieldGroups.length; i++) {
+    const fg = fieldGroups[i];
+    lookup.set(fg.$id, fg.$id);
+    if (fg.$id.startsWith(NS_PREFIX)) {
+      lookup.set("_" + fg.$id.slice(NS_PREFIX.length), fg.$id);
+    } else if (fg.$id.startsWith("_")) {
+      lookup.set(NS_PREFIX + fg.$id.slice(1), fg.$id);
+    }
+  }
+  return lookup;
+}
+
 function resolveSchemaId(
   ref: string,
   lookup: Map<string, string>
@@ -246,23 +260,31 @@ function buildDatasetSchemaEdges(
 
 function buildSchemaFieldGroupEdges(
   schemas: AepSchema[],
-  fieldGroupIds: Set<string>
+  fieldGroupIds: Set<string>,
+  fieldGroupIdLookup: Map<string, string>
 ): Edge<RelationshipEdgeData>[] {
   const edges: Edge<RelationshipEdgeData>[] = [];
   schemas.forEach((s) => {
-    const extends_ = s["meta:extends"] ?? [];
-    extends_.forEach((refId) => {
-      if (!fieldGroupIds.has(refId)) return;
+    // Collect candidate refs from both meta:extends and allOf.$ref so that
+    // schemas work regardless of which the registry populates in a list response.
+    const refs = new Set<string>(s["meta:extends"] ?? []);
+    s.allOf?.forEach((entry) => {
+      if (entry.$ref) refs.add(entry.$ref);
+    });
+
+    refs.forEach((refId) => {
+      const resolvedId = fieldGroupIdLookup.get(refId) ?? refId;
+      if (!fieldGroupIds.has(resolvedId)) return;
       edges.push({
-        id: `edge-schema-fg-${s.$id}-${refId}`,
+        id: `edge-schema-fg-${s.$id}-${resolvedId}`,
         source: `schema-${s.$id}`,
-        target: `fieldgroup-${refId}`,
+        target: `fieldgroup-${resolvedId}`,
         type: "relationshipEdge",
         data: {
           relationshipType: "schema-fieldgroup",
           label: "extends",
           fkLabel: `extends`,
-          pkLabel: refId.split("/").pop() ?? refId,
+          pkLabel: resolvedId.split("/").pop() ?? resolvedId,
         },
       });
     });
@@ -271,22 +293,27 @@ function buildSchemaFieldGroupEdges(
 }
 
 function buildSchemaRelationshipEdges(
-  descriptors: AepDescriptor[]
+  descriptors: AepDescriptor[],
+  schemaIdLookup: Map<string, string>
 ): Edge<RelationshipEdgeData>[] {
-  return getRelationshipDescriptors(descriptors).map((d) => ({
-    id: `edge-schema-rel-${d["@id"]}`,
-    source: `schema-${d["xdm:sourceSchema"]}`,
-    target: `schema-${d["xdm:destinationSchema"]}`,
-    type: "relationshipEdge",
-    data: {
-      relationshipType: "schema-schema" as const,
-      label: "relationship",
-      fkLabel: `FK: ${d["xdm:sourceProperty"] ?? "?"}`,
-      pkLabel: `PK: ${d["xdm:destinationProperty"] ?? "?"}`,
-      sourceField: d["xdm:sourceProperty"],
-      targetField: d["xdm:destinationProperty"],
-    },
-  }));
+  return getRelationshipDescriptors(descriptors).map((d) => {
+    const sourceSchemaId = resolveSchemaId(d["xdm:sourceSchema"], schemaIdLookup);
+    const destinationSchemaId = resolveSchemaId(d["xdm:destinationSchema"] ?? "", schemaIdLookup);
+    return {
+      id: `edge-schema-rel-${d["@id"]}`,
+      source: `schema-${sourceSchemaId}`,
+      target: `schema-${destinationSchemaId}`,
+      type: "relationshipEdge",
+      data: {
+        relationshipType: "schema-schema" as const,
+        label: "relationship",
+        fkLabel: `FK: ${d["xdm:sourceProperty"] ?? "?"}`,
+        pkLabel: `PK: ${d["xdm:destinationProperty"] ?? "?"}`,
+        sourceField: d["xdm:sourceProperty"],
+        targetField: d["xdm:destinationProperty"],
+      },
+    };
+  });
 }
 
 function buildFlowDatasetEdges(
@@ -337,6 +364,7 @@ export function transformToGraph(input: TransformInput) {
   const connectionMap = new Map(connections.map((c) => [c.id, c]));
   const datasetIds = new Set(datasets.map((d) => d.id));
   const fieldGroupIds = new Set(fieldGroups.map((fg) => fg.$id));
+  const fieldGroupIdLookup = buildFieldGroupIdLookup(fieldGroups);
   const schemaIdLookup = buildSchemaIdLookup(schemas);
 
   const nodes: Node[] = [
@@ -350,8 +378,8 @@ export function transformToGraph(input: TransformInput) {
 
   const allEdges: Edge[] = [
     ...buildDatasetSchemaEdges(datasets, schemaIdLookup),
-    ...buildSchemaFieldGroupEdges(schemas, fieldGroupIds),
-    ...buildSchemaRelationshipEdges(descriptors),
+    ...buildSchemaFieldGroupEdges(schemas, fieldGroupIds, fieldGroupIdLookup),
+    ...buildSchemaRelationshipEdges(descriptors, schemaIdLookup),
     ...buildFlowDatasetEdges(flows, connectionMap, datasetIds),
   ];
 

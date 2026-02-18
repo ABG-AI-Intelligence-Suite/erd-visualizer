@@ -25,18 +25,5 @@ body,
 }
 
 .react-flow__edge-path {
-  cursor: pointer;
-}
-
-.react-flow__edge-interaction:hover .react-flow__edge-path {
-  stroke: #1e293b !important;
-  stroke-width: 2.5 !important;
-}
-
-.edge-svg-label {
-  opacity: 0.85;
-  transition: opacity 0.1s;
-}
-.react-flow__edge-interaction:hover .edge-svg-label {
-  opacity: 1;
+  cursor: default;
 }
