@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo, memo } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import type { Node, Edge } from "@xyflow/react";
 import { Toolbar } from "@/components/toolbar/toolbar";
@@ -86,18 +86,26 @@ function ErrorBanner({ fetchError }: { fetchError: string | null }) {
   );
 }
 
-function CanvasArea({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) {
+const CanvasArea = memo(function CanvasArea({
+  nodes,
+  edges,
+  selectedNode,
+}: {
+  nodes: Node[];
+  edges: Edge[];
+  selectedNode: Node | null;
+}) {
   return (
     <div className="flex-1 flex overflow-hidden">
       <div className="flex-1">
         <ErdCanvas nodes={nodes} edges={edges} />
       </div>
-      <DetailPanel nodes={nodes} />
+      <DetailPanel selectedNode={selectedNode} />
     </div>
   );
-}
+});
 
-function ToolbarArea({
+const ToolbarArea = memo(function ToolbarArea({
   onConnect,
   nodes,
 }: {
@@ -105,14 +113,19 @@ function ToolbarArea({
   nodes: Node[];
 }) {
   return <Toolbar onConnect={onConnect} nodes={nodes} />;
-}
+});
 
 function FlowContent({ onConnect }: { onConnect: (config: AepConnectionConfig) => void }) {
   const { nodes, edges } = useFilteredGraph();
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+  const selectedNode = useMemo(
+    () => (selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) ?? null : null),
+    [nodes, selectedNodeId]
+  );
   return (
     <>
       <ToolbarArea onConnect={onConnect} nodes={nodes} />
-      <CanvasArea nodes={nodes} edges={edges} />
+      <CanvasArea nodes={nodes} edges={edges} selectedNode={selectedNode} />
     </>
   );
 }

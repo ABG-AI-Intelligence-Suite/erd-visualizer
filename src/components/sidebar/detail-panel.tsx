@@ -51,7 +51,7 @@ function FieldTable({ fields }: { fields: ErdField[] }) {
 }
 
 interface DetailPanelProps {
-  nodes: Node[];
+  selectedNode: Node | null;
 }
 
 function DatasetDetail({ data }: { data: DatasetNodeData }) {
@@ -174,15 +174,10 @@ function NodeDetail({ data }: { data: ErdNodeData }) {
   }
 }
 
-export function DetailPanel({ nodes }: DetailPanelProps) {
-  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+export function DetailPanel({ selectedNode }: DetailPanelProps) {
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
-
-  const selectedNode = selectedNodeId
-    ? nodes.find((n) => n.id === selectedNodeId)
-    : null;
 
   return (
     <div className="w-64 bg-white border-l border-gray-200 flex flex-col overflow-y-auto">

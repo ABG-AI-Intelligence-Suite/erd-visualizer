@@ -43,25 +43,41 @@ interface ErdCanvasProps {
   edges: Edge[];
 }
 
+function layoutKey(focusNodeId: string | null, collapsed: Record<string, boolean>): string {
+  const c = Object.keys(collapsed)
+    .sort()
+    .map((k) => `${k}:${collapsed[k]}`)
+    .join(",");
+  return `${focusNodeId ?? ""}|${c}`;
+}
+
 export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCanvasProps) {
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
+  const focusNodeId = useCanvasStore((s) => s.focusNodeId);
+  const collapsed = useCanvasStore((s) => s.collapsed);
   const { fitView } = useReactFlow();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(externalNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(externalEdges);
   const lastSyncedKeyRef = useRef("");
+  const lastNodeSetRef = useRef("");
   useEffect(() => {
-    const newKey = externalNodes.map((n) => n.id).join(",");
+    const nodeIdList = externalNodes.map((n) => n.id).join(",");
+    const layout = layoutKey(focusNodeId, collapsed);
+    const newKey = `${nodeIdList}|${layout}`;
     if (newKey === lastSyncedKeyRef.current) return;
     lastSyncedKeyRef.current = newKey;
+    const nodeSetChanged = nodeIdList !== lastNodeSetRef.current;
+    lastNodeSetRef.current = nodeIdList;
     setNodes(externalNodes);
     setEdges(externalEdges);
-    if (externalNodes.length === 0) return;
-    const timer = setTimeout(() => {
-      fitView({ duration: 300, padding: 0.2, minZoom: MIN_ZOOM, maxZoom: 1 });
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [externalNodes, externalEdges, setNodes, setEdges, fitView]);
+    if (externalNodes.length > 0 && nodeSetChanged) {
+      const timer = setTimeout(() => {
+        fitView({ duration: 300, padding: 0.2, minZoom: MIN_ZOOM, maxZoom: 1 });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [externalNodes, externalEdges, focusNodeId, collapsed, setNodes, setEdges, fitView]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => setSelectedNode(node.id),
@@ -90,6 +106,10 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
         deleteKeyCode={null}
         proOptions={proOptions}
         onlyRenderVisibleElements
+        nodesDraggable={false}
+        elementsSelectable={true}
+        panOnScroll
+        panOnDrag={true}
       >
         <ControlsPanel />
       </ReactFlow>

@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useDeferredValue } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { useCanvasStore } from "@/store/canvas-store";
 import type { Node } from "@xyflow/react";
+
+const MAX_SEARCH_RESULTS = 20;
 
 interface SearchBarProps {
   nodes: Node[];
@@ -11,6 +13,7 @@ interface SearchBarProps {
 
 export function SearchBar({ nodes }: SearchBarProps) {
   const searchQuery = useCanvasStore((s) => s.searchQuery);
+  const deferredQuery = useDeferredValue(searchQuery);
   const setSearchQuery = useCanvasStore((s) => s.setSearchQuery);
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
@@ -21,18 +24,25 @@ export function SearchBar({ nodes }: SearchBarProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { setCenter } = useReactFlow();
 
-  const results = useMemo(
-    () =>
-      searchQuery.length >= 2
-        ? nodes
-            .filter((n) => {
-              const label = (n.data as { label?: string })?.label ?? "";
-              return label.toLowerCase().includes(searchQuery.toLowerCase());
-            })
-            .slice(0, 20)
-        : [],
-    [nodes, searchQuery]
-  );
+  const searchIndex = useMemo(() => {
+    const list: { node: Node; labelLower: string }[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      const label = (node.data as { label?: string })?.label ?? "";
+      list.push({ node, labelLower: label.toLowerCase() });
+    }
+    return list;
+  }, [nodes]);
+
+  const results = useMemo(() => {
+    if (deferredQuery.length < 2) return [];
+    const q = deferredQuery.toLowerCase();
+    const out: Node[] = [];
+    for (let i = 0; i < searchIndex.length && out.length < MAX_SEARCH_RESULTS; i++) {
+      if (searchIndex[i].labelLower.includes(q)) out.push(searchIndex[i].node);
+    }
+    return out;
+  }, [searchIndex, deferredQuery]);
 
   const handleSelect = useCallback(
     (node: Node) => {
