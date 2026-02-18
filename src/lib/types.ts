@@ -1,5 +1,3 @@
-// ─── AEP API Response Types ──────────────────────────────────────────────────
-
 export interface AepConnectionConfig {
   token: string;
   orgId: string;
@@ -7,7 +5,6 @@ export interface AepConnectionConfig {
   apiKey: string;
 }
 
-// Catalog API — Datasets
 export interface AepDataset {
   id: string;
   name: string;
@@ -19,24 +16,16 @@ export interface AepDataset {
   tags?: Record<string, string[]>;
   created: number;
   updated: number;
-  unifiedProfile?: {
-    isEnabled: boolean;
-  };
-  unifiedIdentity?: {
-    isEnabled: boolean;
-  };
+  unifiedProfile?: { isEnabled: boolean } | string[];
+  unifiedIdentity?: { isEnabled: boolean } | string[];
   fileDescription?: {
     format: string;
   };
 }
 
-export interface DatasetsResponse {
-  [datasetId: string]: AepDataset;
-}
-
-// Schema Registry — Schemas
 export interface AepSchema {
   $id: string;
+  "meta:altId"?: string;
   title: string;
   description?: string;
   type: string;
@@ -49,11 +38,6 @@ export interface AepSchema {
   version?: string;
 }
 
-export interface SchemasResponse {
-  results: AepSchema[];
-}
-
-// Schema Registry — Field Groups
 export interface AepFieldGroup {
   $id: string;
   title: string;
@@ -65,11 +49,6 @@ export interface AepFieldGroup {
   definitions?: Record<string, unknown>;
 }
 
-export interface FieldGroupsResponse {
-  results: AepFieldGroup[];
-}
-
-// Schema Registry — Descriptors (identity + relationship)
 export interface AepDescriptor {
   "@id": string;
   "@type": string;
@@ -77,19 +56,12 @@ export interface AepDescriptor {
   "xdm:sourceVersion"?: number;
   "xdm:sourceProperty"?: string;
   "xdm:isPrimary"?: boolean;
-  // Relationship descriptor fields
   "xdm:destinationSchema"?: string;
   "xdm:destinationProperty"?: string;
   "xdm:destinationVersion"?: number;
-  // Identity namespace
   "xdm:namespace"?: string;
 }
 
-export interface DescriptorsResponse {
-  results: AepDescriptor[];
-}
-
-// Flow Service — Flows
 export interface AepFlow {
   id: string;
   name: string;
@@ -97,16 +69,20 @@ export interface AepFlow {
   state: string;
   sourceConnectionIds?: string[];
   targetConnectionIds?: string[];
+  targetConnections?: Array<{
+    id: string;
+    connectionSpec?: { id: string };
+    params?: {
+      dataSetId?: string;
+      datasets?: Array<{ dataSetId?: string }>;
+      [key: string]: unknown;
+    };
+  }>;
   transformations?: unknown[];
   created: number;
   updated: number;
 }
 
-export interface FlowsResponse {
-  items: AepFlow[];
-}
-
-// Flow Service — Connections
 export interface AepConnection {
   id: string;
   name: string;
@@ -120,13 +96,40 @@ export interface AepConnection {
   };
 }
 
+export interface DatasetsResponse {
+  [datasetId: string]: AepDataset;
+}
+
+export interface SchemasResponse {
+  results: AepSchema[];
+}
+
+export interface FieldGroupsResponse {
+  results: AepFieldGroup[];
+}
+
+export interface DescriptorsResponse {
+  results: AepDescriptor[];
+}
+
+export interface FlowsResponse {
+  items: AepFlow[];
+}
+
 export interface ConnectionsResponse {
   items: AepConnection[];
 }
 
-// ─── React Flow Node Data Types ─────────────────────────────────────────────
-
 export type EntityType = "dataset" | "schema" | "fieldGroup" | "flow";
+
+export interface ErdField {
+  path: string;
+  name: string;
+  type: string;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  fkTarget?: string;
+}
 
 export interface DatasetNodeData {
   [key: string]: unknown;
@@ -138,6 +141,8 @@ export interface DatasetNodeData {
   profileEnabled: boolean;
   identityField?: string;
   format?: string;
+  isSystem: boolean;
+  fields: ErdField[];
 }
 
 export interface SchemaNodeData {
@@ -145,11 +150,14 @@ export interface SchemaNodeData {
   entityType: "schema";
   label: string;
   schemaId: string;
+  altId?: string;
   description?: string;
   className?: string;
   fieldCount: number;
   primaryIdentityField?: string;
   extends: string[];
+  isSystem: boolean;
+  fields: ErdField[];
 }
 
 export interface FieldGroupNodeData {
@@ -160,6 +168,8 @@ export interface FieldGroupNodeData {
   description?: string;
   fieldCount: number;
   keyFields: string[];
+  isSystem: boolean;
+  fields: ErdField[];
 }
 
 export interface FlowNodeData {
@@ -171,6 +181,7 @@ export interface FlowNodeData {
   state: string;
   sourceSummary: string;
   targetSummary: string;
+  isSystem: boolean;
 }
 
 export type ErdNodeData =
@@ -178,8 +189,6 @@ export type ErdNodeData =
   | SchemaNodeData
   | FieldGroupNodeData
   | FlowNodeData;
-
-// ─── React Flow Edge Data Types ─────────────────────────────────────────────
 
 export type RelationshipType =
   | "dataset-schema"
@@ -198,11 +207,15 @@ export interface RelationshipEdgeData {
   targetField?: string;
 }
 
-// ─── Filter State ───────────────────────────────────────────────────────────
+export type EntityFilterKey = "datasets" | "schemas" | "fieldGroups" | "flows";
 
 export interface FilterState {
   datasets: boolean;
   schemas: boolean;
   fieldGroups: boolean;
   flows: boolean;
+  profileOnly: boolean;
+  showSystem: boolean;
+  showCustom: boolean;
+  connectedFlowsOnly: boolean;
 }

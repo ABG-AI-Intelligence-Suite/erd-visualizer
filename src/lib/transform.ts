@@ -6,26 +6,51 @@ import type {
   AepFlow,
   AepConnection,
   AepDescriptor,
+  ErdField,
   DatasetNodeData,
   SchemaNodeData,
   FieldGroupNodeData,
   FlowNodeData,
   RelationshipEdgeData,
 } from "./types";
-
-// ─── Layout helpers ─────────────────────────────────────────────────────────
+import { extractFields } from "./extract-fields";
 
 const COL_WIDTH = 320;
-const ROW_HEIGHT = 180;
+const ROW_HEIGHT = 280;
 
 function columnPosition(col: number, row: number) {
   return { x: col * COL_WIDTH + 40, y: row * ROW_HEIGHT + 40 };
 }
 
-// ─── Identity / PK resolution ───────────────────────────────────────────────
+const NS_PREFIX = "https://ns.adobe.com/";
+
+function buildSchemaIdLookup(schemas: AepSchema[]): Map<string, string> {
+  const lookup = new Map<string, string>();
+
+  schemas.forEach((s) => {
+    lookup.set(s.$id, s.$id);
+    if (s["meta:altId"]) lookup.set(s["meta:altId"], s.$id);
+    if (s.$id.startsWith(NS_PREFIX)) {
+      const derived = "_" + s.$id.slice(NS_PREFIX.length);
+      lookup.set(derived, s.$id);
+    } else if (s.$id.startsWith("_")) {
+      const derived = NS_PREFIX + s.$id.slice(1);
+      lookup.set(derived, s.$id);
+    }
+  });
+
+  return lookup;
+}
+
+function resolveSchemaId(
+  ref: string,
+  lookup: Map<string, string>
+): string {
+  return lookup.get(ref) ?? ref;
+}
 
 function buildIdentityMap(descriptors: AepDescriptor[]) {
-  const pkMap = new Map<string, string>(); // schemaId → primary identity field
+  const pkMap = new Map<string, string>();
   descriptors.forEach((d) => {
     if (d["@type"] === "xdm:descriptorIdentity" && d["xdm:isPrimary"]) {
       pkMap.set(d["xdm:sourceSchema"], d["xdm:sourceProperty"] ?? "unknown");
@@ -42,14 +67,42 @@ function getRelationshipDescriptors(descriptors: AepDescriptor[]) {
   );
 }
 
-// ─── Node builders ──────────────────────────────────────────────────────────
+export function isSystemId(id: string): boolean {
+  return id.startsWith("https://ns.adobe.com/xdm/") || id.startsWith("_xdm/");
+}
+
+function isProfileEnabled(
+  unifiedProfile?: { isEnabled: boolean } | string[],
+  tagsUnifiedProfile?: string[]
+): boolean {
+  const arr = Array.isArray(unifiedProfile) ? unifiedProfile : tagsUnifiedProfile;
+  if (arr?.length) {
+    return arr.some(
+      (v) =>
+        v === "enabled" ||
+        v === "enabled:true" ||
+        (typeof v === "string" && v.startsWith("enabled"))
+    );
+  }
+  if (unifiedProfile && typeof unifiedProfile === "object" && !Array.isArray(unifiedProfile)) {
+    return unifiedProfile.isEnabled ?? false;
+  }
+  return false;
+}
 
 function buildDatasetNodes(
   datasets: AepDataset[],
-  pkMap: Map<string, string>
+  pkMap: Map<string, string>,
+  schemaIdLookup: Map<string, string>,
+  schemaFieldsMap?: Map<string, ErdField[]>
 ): Node<DatasetNodeData>[] {
   return datasets.map((ds, i) => {
-    const schemaId = ds.schemaRef?.id;
+    const rawSchemaId = ds.schemaRef?.id;
+    const schemaId = rawSchemaId
+      ? resolveSchemaId(rawSchemaId, schemaIdLookup)
+      : undefined;
+    const fields = schemaId ? (schemaFieldsMap?.get(schemaId) ?? []) : [];
+    const isSystem = schemaId ? isSystemId(schemaId) : false;
     return {
       id: `dataset-${ds.id}`,
       type: "datasetNode",
@@ -60,9 +113,11 @@ function buildDatasetNodes(
         datasetId: ds.id,
         description: ds.description,
         schemaRefId: schemaId,
-        profileEnabled: ds.unifiedProfile?.isEnabled ?? false,
-        identityField: schemaId ? pkMap.get(schemaId) : undefined,
+        profileEnabled: isProfileEnabled(ds.unifiedProfile, ds.tags?.unifiedProfile),
+        identityField: schemaId ? (pkMap.get(schemaId) ?? pkMap.get(rawSchemaId!)) : undefined,
         format: ds.fileDescription?.format,
+        isSystem,
+        fields,
       },
     };
   });
@@ -70,30 +125,48 @@ function buildDatasetNodes(
 
 function buildSchemaNodes(
   schemas: AepSchema[],
-  pkMap: Map<string, string>
+  pkMap: Map<string, string>,
+  schemaFieldsMap?: Map<string, ErdField[]>
 ): Node<SchemaNodeData>[] {
-  return schemas.map((s, i) => ({
-    id: `schema-${s.$id}`,
-    type: "schemaNode",
-    position: columnPosition(2, i),
-    data: {
-      entityType: "schema" as const,
-      label: s.title || s.$id,
-      schemaId: s.$id,
-      description: s.description,
-      className: s["meta:class"],
-      fieldCount: s.properties ? Object.keys(s.properties).length : 0,
-      primaryIdentityField: pkMap.get(s.$id),
-      extends: s["meta:extends"] ?? [],
-    },
-  }));
+  return schemas.map((s, i) => {
+    const altId =
+      s["meta:altId"] ??
+      (s.$id.startsWith(NS_PREFIX) ? "_" + s.$id.slice(NS_PREFIX.length) : undefined);
+
+    const fields = schemaFieldsMap?.get(s.$id) ?? [];
+    const fieldCount = fields.length > 0
+      ? fields.length
+      : (s.properties ? Object.keys(s.properties).length : 0);
+
+    return {
+      id: `schema-${s.$id}`,
+      type: "schemaNode",
+      position: columnPosition(2, i),
+      data: {
+        entityType: "schema" as const,
+        label: s.title || s.$id,
+        schemaId: s.$id,
+        altId,
+        description: s.description,
+        className: s["meta:class"],
+        fieldCount,
+        primaryIdentityField: pkMap.get(s.$id),
+        extends: s["meta:extends"] ?? [],
+        isSystem: isSystemId(s.$id),
+        fields,
+      },
+    };
+  });
 }
 
 function buildFieldGroupNodes(
   fieldGroups: AepFieldGroup[]
 ): Node<FieldGroupNodeData>[] {
   return fieldGroups.map((fg, i) => {
-    const fields = fg.properties ? Object.keys(fg.properties) : [];
+    const propKeys = fg.properties ? Object.keys(fg.properties) : [];
+    const fields: ErdField[] = fg.properties
+      ? extractFields(fg.properties as Record<string, unknown>)
+      : [];
     return {
       id: `fieldgroup-${fg.$id}`,
       type: "fieldGroupNode",
@@ -104,7 +177,9 @@ function buildFieldGroupNodes(
         fieldGroupId: fg.$id,
         description: fg.description,
         fieldCount: fields.length,
-        keyFields: fields.slice(0, 5),
+        keyFields: propKeys.slice(0, 5),
+        isSystem: isSystemId(fg.$id),
+        fields,
       },
     };
   });
@@ -136,21 +211,24 @@ function buildFlowNodes(
         state: f.state,
         sourceSummary: sourceName,
         targetSummary: targetName,
+        isSystem: false,
       },
     };
   });
 }
 
-// ─── Edge builders ──────────────────────────────────────────────────────────
-
-function buildDatasetSchemaEdges(datasets: AepDataset[]): Edge<RelationshipEdgeData>[] {
+function buildDatasetSchemaEdges(
+  datasets: AepDataset[],
+  schemaIdLookup: Map<string, string>
+): Edge<RelationshipEdgeData>[] {
   const edges: Edge<RelationshipEdgeData>[] = [];
   datasets.forEach((ds) => {
     if (ds.schemaRef?.id) {
+      const resolvedId = resolveSchemaId(ds.schemaRef.id, schemaIdLookup);
       edges.push({
         id: `edge-ds-schema-${ds.id}`,
         source: `dataset-${ds.id}`,
-        target: `schema-${ds.schemaRef.id}`,
+        target: `schema-${resolvedId}`,
         type: "relationshipEdge",
         data: {
           relationshipType: "dataset-schema",
@@ -166,21 +244,25 @@ function buildDatasetSchemaEdges(datasets: AepDataset[]): Edge<RelationshipEdgeD
   return edges;
 }
 
-function buildSchemaFieldGroupEdges(schemas: AepSchema[]): Edge<RelationshipEdgeData>[] {
+function buildSchemaFieldGroupEdges(
+  schemas: AepSchema[],
+  fieldGroupIds: Set<string>
+): Edge<RelationshipEdgeData>[] {
   const edges: Edge<RelationshipEdgeData>[] = [];
   schemas.forEach((s) => {
     const extends_ = s["meta:extends"] ?? [];
-    extends_.forEach((fgId) => {
+    extends_.forEach((refId) => {
+      if (!fieldGroupIds.has(refId)) return;
       edges.push({
-        id: `edge-schema-fg-${s.$id}-${fgId}`,
+        id: `edge-schema-fg-${s.$id}-${refId}`,
         source: `schema-${s.$id}`,
-        target: `fieldgroup-${fgId}`,
+        target: `fieldgroup-${refId}`,
         type: "relationshipEdge",
         data: {
           relationshipType: "schema-fieldgroup",
           label: "extends",
           fkLabel: `extends`,
-          pkLabel: fgId.split("/").pop() ?? fgId,
+          pkLabel: refId.split("/").pop() ?? refId,
         },
       });
     });
@@ -238,8 +320,6 @@ function buildFlowDatasetEdges(
   return edges;
 }
 
-// ─── Main transform ─────────────────────────────────────────────────────────
-
 export interface TransformInput {
   datasets: AepDataset[];
   schemas: AepSchema[];
@@ -247,28 +327,37 @@ export interface TransformInput {
   flows: AepFlow[];
   connections: AepConnection[];
   descriptors: AepDescriptor[];
+  schemaFieldsMap?: Map<string, ErdField[]>;
 }
 
 export function transformToGraph(input: TransformInput) {
-  const { datasets, schemas, fieldGroups, flows, connections, descriptors } = input;
+  const { datasets, schemas, fieldGroups, flows, connections, descriptors, schemaFieldsMap } = input;
 
   const pkMap = buildIdentityMap(descriptors);
   const connectionMap = new Map(connections.map((c) => [c.id, c]));
   const datasetIds = new Set(datasets.map((d) => d.id));
+  const fieldGroupIds = new Set(fieldGroups.map((fg) => fg.$id));
+  const schemaIdLookup = buildSchemaIdLookup(schemas);
 
   const nodes: Node[] = [
-    ...buildDatasetNodes(datasets, pkMap),
-    ...buildSchemaNodes(schemas, pkMap),
+    ...buildDatasetNodes(datasets, pkMap, schemaIdLookup, schemaFieldsMap),
+    ...buildSchemaNodes(schemas, pkMap, schemaFieldsMap),
     ...buildFieldGroupNodes(fieldGroups),
     ...buildFlowNodes(flows, connectionMap),
   ];
 
-  const edges: Edge[] = [
-    ...buildDatasetSchemaEdges(datasets),
-    ...buildSchemaFieldGroupEdges(schemas),
+  const nodeIds = new Set(nodes.map((n) => n.id));
+
+  const allEdges: Edge[] = [
+    ...buildDatasetSchemaEdges(datasets, schemaIdLookup),
+    ...buildSchemaFieldGroupEdges(schemas, fieldGroupIds),
     ...buildSchemaRelationshipEdges(descriptors),
     ...buildFlowDatasetEdges(flows, connectionMap, datasetIds),
   ];
+
+  const edges = allEdges.filter(
+    (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
+  );
 
   return { nodes, edges };
 }

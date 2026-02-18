@@ -8,21 +8,15 @@ import type {
 } from "./types";
 import type { TransformInput } from "./transform";
 
-// ─── Schema IDs ──────────────────────────────────────────────────────────────
-
 const SCHEMA_CUSTOMER = "https://ns.adobe.com/tenant/schemas/customer-profile";
 const SCHEMA_WEB = "https://ns.adobe.com/tenant/schemas/web-event";
 const SCHEMA_PRODUCT = "https://ns.adobe.com/tenant/schemas/product";
 const SCHEMA_EMAIL = "https://ns.adobe.com/tenant/schemas/email-interaction";
 
-// ─── Field Group IDs ─────────────────────────────────────────────────────────
-
 const FG_PERSON = "https://ns.adobe.com/tenant/fieldgroups/person-identity";
 const FG_WEB = "https://ns.adobe.com/tenant/fieldgroups/web-behavior";
 const FG_PRODUCT = "https://ns.adobe.com/tenant/fieldgroups/product-details";
 const FG_EMAIL = "https://ns.adobe.com/tenant/fieldgroups/email-engagement";
-
-// ─── Datasets ────────────────────────────────────────────────────────────────
 
 const datasets: AepDataset[] = [
   {
@@ -69,8 +63,6 @@ const datasets: AepDataset[] = [
     fileDescription: { format: "parquet" },
   },
 ];
-
-// ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const schemas: AepSchema[] = [
   {
@@ -143,8 +135,6 @@ const schemas: AepSchema[] = [
   },
 ];
 
-// ─── Field Groups ────────────────────────────────────────────────────────────
-
 const fieldGroups: AepFieldGroup[] = [
   {
     $id: FG_PERSON,
@@ -211,8 +201,6 @@ const fieldGroups: AepFieldGroup[] = [
   },
 ];
 
-// ─── Connections ─────────────────────────────────────────────────────────────
-
 const connections: AepConnection[] = [
   {
     id: "conn-crm-source",
@@ -246,8 +234,6 @@ const connections: AepConnection[] = [
   },
 ];
 
-// ─── Flows ───────────────────────────────────────────────────────────────────
-
 const flows: AepFlow[] = [
   {
     id: "flow-crm-ingest",
@@ -271,10 +257,7 @@ const flows: AepFlow[] = [
   },
 ];
 
-// ─── Descriptors ─────────────────────────────────────────────────────────────
-
 const descriptors: AepDescriptor[] = [
-  // Primary identity: Customer Profile → personId
   {
     "@id": "desc-identity-customer-personid",
     "@type": "xdm:descriptorIdentity",
@@ -284,7 +267,6 @@ const descriptors: AepDescriptor[] = [
     "xdm:isPrimary": true,
     "xdm:namespace": "CRMId",
   },
-  // Primary identity: Web Event → visitorId
   {
     "@id": "desc-identity-web-visitorid",
     "@type": "xdm:descriptorIdentity",
@@ -294,7 +276,6 @@ const descriptors: AepDescriptor[] = [
     "xdm:isPrimary": true,
     "xdm:namespace": "ECID",
   },
-  // Relationship: Web Event.personId → Customer Profile.personId
   {
     "@id": "desc-rel-web-to-customer",
     "@type": "xdm:descriptorOneToOne",
@@ -305,7 +286,6 @@ const descriptors: AepDescriptor[] = [
     "xdm:destinationVersion": 1,
     "xdm:destinationProperty": "/personId",
   },
-  // Relationship: Email Interaction.recipientId → Customer Profile.personId
   {
     "@id": "desc-rel-email-to-customer",
     "@type": "xdm:descriptorOneToOne",
@@ -317,8 +297,6 @@ const descriptors: AepDescriptor[] = [
     "xdm:destinationProperty": "/personId",
   },
 ];
-
-// ─── Export ──────────────────────────────────────────────────────────────────
 
 export function getMockTransformInput(): TransformInput {
   return { datasets, schemas, fieldGroups, flows, connections, descriptors };

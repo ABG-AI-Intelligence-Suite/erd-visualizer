@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { AepConnectionConfig, AepSchema, AepDescriptor } from "@/lib/types";
+import { paginateSchemaRegistry } from "@/lib/paginate";
 
 function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   return {
@@ -9,6 +10,8 @@ function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
     "x-aep-api-key": config.apiKey,
   };
 }
+
+const NS_PREFIX = "https://ns.adobe.com/";
 
 export function useSchemas() {
   const [schemas, setSchemas] = useState<AepSchema[]>([]);
@@ -22,36 +25,22 @@ export function useSchemas() {
     try {
       const headers = proxyHeaders(config);
 
-      const [schemasRes, descriptorsRes] = await Promise.all([
-        fetch(
-          "/api/aep/schemaregistry/tenant/schemas?orderby=title&limit=200",
-          { headers }
-        ),
-        fetch(
-          "/api/aep/schemaregistry/tenant/descriptors?limit=300",
-          { headers }
-        ),
+      const [schemaList, descriptorList] = await Promise.all([
+        paginateSchemaRegistry<AepSchema>({
+          url: "/api/aep/schemaregistry/tenant/schemas?limit=200",
+          headers,
+        }),
+        paginateSchemaRegistry<AepDescriptor>({
+          url: "/api/aep/schemaregistry/tenant/descriptors?limit=300",
+          headers,
+        }).catch((err) => {
+          console.warn(`[Descriptors] Fetch failed: ${err.message}`);
+          return [] as AepDescriptor[];
+        }),
       ]);
 
-      const schemasData = await schemasRes.json();
-      if (!schemasRes.ok) {
-        console.error(`[Schemas] API error ${schemasRes.status}:`, JSON.stringify(schemasData, null, 2));
-        throw new Error(
-          `Schema API error ${schemasRes.status}: ${schemasData?.detail?.title || schemasData?.detail?.detail || schemasData?.error || schemasRes.statusText} | URL: ${schemasData?.url || "unknown"}`
-        );
-      }
-      const schemaList: AepSchema[] = schemasData.results ?? [];
       setSchemas(schemaList);
-
-      let descriptorList: AepDescriptor[] = [];
-      if (descriptorsRes.ok) {
-        const descData = await descriptorsRes.json();
-        descriptorList = descData.results ?? [];
-        setDescriptors(descriptorList);
-      } else {
-        const descErr = await descriptorsRes.json();
-        console.warn(`[Descriptors] API error ${descriptorsRes.status}:`, JSON.stringify(descErr, null, 2));
-      }
+      setDescriptors(descriptorList);
 
       return { schemas: schemaList, descriptors: descriptorList };
     } catch (err) {
@@ -63,5 +52,54 @@ export function useSchemas() {
     }
   }, []);
 
-  return { schemas, descriptors, loading, error, fetchSchemas: fetch_ };
+  const fetchMissing = useCallback(
+    async (
+      missingRefs: string[],
+      config: AepConnectionConfig
+    ): Promise<AepSchema[]> => {
+      if (missingRefs.length === 0) return [];
+
+      const headers = proxyHeaders(config);
+      const fetched: AepSchema[] = [];
+
+      for (let i = 0; i < missingRefs.length; i += 5) {
+        const batch = missingRefs.slice(i, i + 5);
+        const results = await Promise.allSettled(
+          batch.map(async (ref) => {
+            const filterValue = ref.startsWith(NS_PREFIX)
+              ? ref
+              : NS_PREFIX + ref.slice(1); // convert altId → $id URI
+            const qs = new URLSearchParams({
+              "property": `$id==${filterValue}`,
+              "limit": "1",
+            });
+            const url = `/api/aep/schemaregistry/tenant/schemas?${qs.toString()}`;
+            const res = await fetch(url, {
+              headers: {
+                ...headers,
+                Accept: "application/vnd.adobe.xed+json",
+              },
+            });
+            if (!res.ok) {
+              return null;
+            }
+            const data = await res.json();
+            const results: AepSchema[] = data.results ?? [];
+            return results.length > 0 ? results[0] : null;
+          })
+        );
+
+        results.forEach((r) => {
+          if (r.status === "fulfilled" && r.value) {
+            fetched.push(r.value);
+          }
+        });
+      }
+
+      return fetched;
+    },
+    []
+  );
+
+  return { schemas, descriptors, loading, error, fetchSchemas: fetch_, fetchMissingSchemas: fetchMissing };
 }

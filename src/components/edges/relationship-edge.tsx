@@ -1,9 +1,8 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo } from "react";
 import {
   BaseEdge,
-  EdgeLabelRenderer,
   getSmoothStepPath,
   type EdgeProps,
 } from "@xyflow/react";
@@ -31,8 +30,6 @@ function RelationshipEdgeComponent(props: EdgeProps) {
   } = props;
 
   const d = data as unknown as RelationshipEdgeData | undefined;
-  const [hovered, setHovered] = useState(false);
-
   const relType = d?.relationshipType ?? "dataset-schema";
   const lineStyle = STYLE_MAP[relType] ?? STYLE_MAP["dataset-schema"];
 
@@ -46,63 +43,54 @@ function RelationshipEdgeComponent(props: EdgeProps) {
     borderRadius: 8,
   });
 
+  const label = d?.label ?? "";
+
   return (
-    <>
-      {/* Invisible wider path for hover target */}
+    <g className="react-flow__edge-interaction">
+      {/* Wide invisible hit area */}
       <path
         d={edgePath}
         fill="none"
         stroke="transparent"
-        strokeWidth={16}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        strokeWidth={14}
+        style={{ cursor: "pointer" }}
       />
       <BaseEdge
         path={edgePath}
         markerEnd={markerEnd}
         style={{
           ...style,
-          stroke: hovered ? "#1e293b" : lineStyle.stroke,
+          stroke: lineStyle.stroke,
           strokeDasharray: lineStyle.strokeDasharray,
-          strokeWidth: hovered ? 2.5 : 1.5,
-          transition: "stroke 0.15s, stroke-width 0.15s",
+          strokeWidth: 1.5,
+          pointerEvents: "none",
         }}
       />
-      <EdgeLabelRenderer>
-        <div
-          className="nodrag nopan pointer-events-auto"
-          style={{
-            position: "absolute",
-            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-          }}
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-        >
-          {/* Main label badge */}
-          <div className="flex items-center gap-1 text-[10px]">
-            {d?.fkLabel && (
-              <span className="border border-gray-400 text-gray-600 rounded-full px-1.5 py-0.5 bg-white whitespace-nowrap">
-                {d.fkLabel}
-              </span>
-            )}
-            {d?.pkLabel && (
-              <span className="bg-gray-800 text-white rounded-full px-1.5 py-0.5 whitespace-nowrap">
-                {d.pkLabel}
-              </span>
-            )}
-          </div>
-
-          {/* Tooltip on hover */}
-          {hovered && d && (
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-gray-900 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap z-50 shadow-lg">
-              <p className="font-semibold">{d.label}</p>
-              {d.sourceField && <p>Source: {d.sourceField}</p>}
-              {d.targetField && <p>Target: {d.targetField}</p>}
-            </div>
-          )}
-        </div>
-      </EdgeLabelRenderer>
-    </>
+      {/* SVG label — lives in the same transform layer, zero repositioning cost */}
+      {label && (
+        <g transform={`translate(${labelX}, ${labelY})`} className="edge-svg-label">
+          <rect
+            x={-(label.length * 3.5 + 8)}
+            y={-9}
+            width={label.length * 7 + 16}
+            height={18}
+            rx={9}
+            fill="white"
+            stroke="#d1d5db"
+            strokeWidth={1}
+          />
+          <text
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={10}
+            fill="#4b5563"
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            {label}
+          </text>
+        </g>
+      )}
+    </g>
   );
 }
 

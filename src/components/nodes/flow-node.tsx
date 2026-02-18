@@ -14,7 +14,7 @@ function FlowNodeComponent({ data }: NodeProps) {
         : "bg-gray-400";
 
   return (
-    <div className="rounded-lg border-2 border-flow bg-flow-light shadow-md w-64 overflow-hidden">
+    <div className="rounded-lg border-2 border-flow bg-flow-light w-64 overflow-hidden">
       <div className="bg-flow px-3 py-1.5 text-white text-xs font-semibold uppercase tracking-wide flex items-center gap-2">
         <span>Dataflow</span>
         <span className={`${stateColor} w-2 h-2 rounded-full`} />

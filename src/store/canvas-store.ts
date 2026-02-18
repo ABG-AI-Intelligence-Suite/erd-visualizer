@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { AepConnectionConfig, FilterState } from "@/lib/types";
+import type { Node, Edge } from "@xyflow/react";
+import type { AepConnectionConfig, EntityFilterKey, FilterState } from "@/lib/types";
 
 interface CanvasStore {
   connection: AepConnectionConfig | null;
@@ -17,6 +18,22 @@ interface CanvasStore {
 
   error: string | null;
   setError: (error: string | null) => void;
+
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+
+  focusNodeId: string | null;
+  setFocusNode: (id: string | null) => void;
+
+  collapsed: Record<EntityFilterKey, boolean>;
+  toggleCollapse: (type: EntityFilterKey) => void;
+
+  expandedNodes: Record<string, boolean>;
+  toggleNodeExpanded: (nodeId: string) => void;
+
+  rawNodes: Node[];
+  rawEdges: Edge[];
+  setGraph: (nodes: Node[], edges: Edge[]) => void;
 }
 
 export const useCanvasStore = create<CanvasStore>((set) => ({
@@ -29,6 +46,10 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
     schemas: true,
     fieldGroups: true,
     flows: true,
+    profileOnly: false,
+    showSystem: true,
+    showCustom: true,
+    connectedFlowsOnly: true,
   },
   toggleFilter: (type) =>
     set((state) => ({
@@ -43,4 +64,34 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
 
   error: null,
   setError: (error) => set({ error }),
+
+  searchQuery: "",
+  setSearchQuery: (query) => set({ searchQuery: query }),
+
+  focusNodeId: null,
+  setFocusNode: (id) => set({ focusNodeId: id, selectedNodeId: id }),
+
+  collapsed: {
+    datasets: false,
+    schemas: false,
+    fieldGroups: false,
+    flows: false,
+  },
+  toggleCollapse: (type) =>
+    set((state) => ({
+      collapsed: { ...state.collapsed, [type]: !state.collapsed[type] },
+    })),
+
+  expandedNodes: {},
+  toggleNodeExpanded: (nodeId) =>
+    set((state) => ({
+      expandedNodes: {
+        ...state.expandedNodes,
+        [nodeId]: !state.expandedNodes[nodeId],
+      },
+    })),
+
+  rawNodes: [],
+  rawEdges: [],
+  setGraph: (nodes, edges) => set({ rawNodes: nodes, rawEdges: edges }),
 }));

@@ -13,19 +13,26 @@ interface ProxyHeaders {
   apiKey: string;
 }
 
-export function buildAepUrl(pathSegments: string[], query: string): string {
+export function buildAepUrl(
+  pathSegments: string[],
+  query: string,
+  resourceId?: string
+): string {
   const [service, ...rest] = pathSegments;
   const base = SERVICE_MAP[service];
   if (!base) {
     throw new Error(`Unknown AEP service: ${service}`);
   }
-  const path = rest.join("/");
+  let path = rest.join("/");
+  if (resourceId) {
+    path += "/" + encodeURIComponent(resourceId);
+  }
   const qs = query ? `?${query}` : "";
   return `${base}/${path}${qs}`;
 }
 
 const SCHEMA_REGISTRY_ACCEPT: Record<string, string> = {
-  schemas: "application/vnd.adobe.xed-full+json; version=1",
+  schemas: "application/vnd.adobe.xed+json",
   fieldgroups: "application/vnd.adobe.xed+json",
   descriptors: "application/vnd.adobe.xdm-v2+json",
 };
@@ -33,12 +40,14 @@ const SCHEMA_REGISTRY_ACCEPT: Record<string, string> = {
 export function buildAepHeaders(
   headers: ProxyHeaders,
   service: string,
-  path: string
+  path: string,
+  acceptOverride?: string
 ): Record<string, string> {
   let accept = "application/json";
 
-  if (service === "schemaregistry") {
-    // Match the last path segment to pick the right Accept header
+  if (acceptOverride === "full") {
+    accept = "application/vnd.adobe.xed-full+json; version=1";
+  } else if (service === "schemaregistry") {
     const resource = Object.keys(SCHEMA_REGISTRY_ACCEPT).find((key) =>
       path.includes(key)
     );

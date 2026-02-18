@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { AepConnectionConfig, AepFlow, AepConnection } from "@/lib/types";
+import { paginateFlowService } from "@/lib/paginate";
 
 function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   return {
@@ -22,32 +23,29 @@ export function useFlows() {
     try {
       const headers = proxyHeaders(config);
 
-      const [flowsRes, connectionsRes] = await Promise.all([
-        fetch("/api/aep/flowservice/flows?limit=200", { headers }),
-        fetch("/api/aep/flowservice/connections?limit=200", { headers }),
+      const [flowList, connectionList, targetConnectionList] = await Promise.all([
+        paginateFlowService<AepFlow>({
+          url: "/api/aep/flowservice/flows?limit=200",
+          headers,
+        }),
+        paginateFlowService<AepConnection>({
+          url: "/api/aep/flowservice/connections?limit=200",
+          headers,
+        }).catch(() => [] as AepConnection[]),
+        paginateFlowService<AepConnection>({
+          url: "/api/aep/flowservice/targetConnections?limit=200",
+          headers,
+        }).catch(() => [] as AepConnection[]),
       ]);
 
-      const flowsData = await flowsRes.json();
-      if (!flowsRes.ok) {
-        console.error(`[Flows] API error ${flowsRes.status}:`, JSON.stringify(flowsData, null, 2));
-        throw new Error(
-          `Flows API error ${flowsRes.status}: ${flowsData?.detail?.title || flowsData?.detail?.detail || flowsData?.error || flowsRes.statusText} | URL: ${flowsData?.url || "unknown"}`
-        );
-      }
-      const flowList: AepFlow[] = flowsData.items ?? [];
+      const mergedConnections = new Map(connectionList.map((c) => [c.id, c]));
+      targetConnectionList.forEach((tc) => mergedConnections.set(tc.id, tc));
+      const allConnections = Array.from(mergedConnections.values());
+
       setFlows(flowList);
+      setConnections(allConnections);
 
-      let connectionList: AepConnection[] = [];
-      if (connectionsRes.ok) {
-        const connData = await connectionsRes.json();
-        connectionList = connData.items ?? [];
-        setConnections(connectionList);
-      } else {
-        const connErr = await connectionsRes.json();
-        console.warn(`[Connections] API error ${connectionsRes.status}:`, JSON.stringify(connErr, null, 2));
-      }
-
-      return { flows: flowList, connections: connectionList };
+      return { flows: flowList, connections: allConnections };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch flows";
       setError(msg);
@@ -57,5 +55,83 @@ export function useFlows() {
     }
   }, []);
 
-  return { flows, connections, loading, error, fetchFlows: fetch_ };
+  const fetchMissingConnections = useCallback(
+    async (
+      connectionIds: string[],
+      config: AepConnectionConfig
+    ): Promise<AepConnection[]> => {
+      if (connectionIds.length === 0) return [];
+
+      const headers = proxyHeaders(config);
+      const fetched: AepConnection[] = [];
+
+      for (let i = 0; i < connectionIds.length; i += 5) {
+        const batch = connectionIds.slice(i, i + 5);
+        const results = await Promise.allSettled(
+          batch.map(async (connId) => {
+            const res = await fetch(
+              `/api/aep/flowservice/targetConnections/${connId}`,
+              { headers }
+            );
+            if (!res.ok) return null;
+            return (await res.json()) as AepConnection;
+          })
+        );
+
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value) {
+            fetched.push(r.value);
+          }
+        }
+      }
+
+      return fetched;
+    },
+    []
+  );
+
+  const fetchFlowDetails = useCallback(
+    async (
+      flowIds: string[],
+      config: AepConnectionConfig
+    ): Promise<AepFlow[]> => {
+      if (flowIds.length === 0) return [];
+
+      const headers = proxyHeaders(config);
+      const fetched: AepFlow[] = [];
+
+      for (let i = 0; i < flowIds.length; i += 5) {
+        const batch = flowIds.slice(i, i + 5);
+        const results = await Promise.allSettled(
+          batch.map(async (flowId) => {
+            const res = await fetch(
+              `/api/aep/flowservice/flows/${flowId}`,
+              { headers }
+            );
+            if (!res.ok) return null;
+            return (await res.json()) as AepFlow;
+          })
+        );
+
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value) {
+            fetched.push(r.value);
+          }
+        }
+      }
+
+      return fetched;
+    },
+    []
+  );
+
+  return {
+    flows,
+    connections,
+    loading,
+    error,
+    fetchFlows: fetch_,
+    fetchMissingConnections,
+    fetchFlowDetails,
+  };
 }

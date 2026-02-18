@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { AepConnectionConfig, AepFieldGroup } from "@/lib/types";
+import { paginateSchemaRegistry } from "@/lib/paginate";
 
 function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   return {
@@ -19,18 +20,13 @@ export function useFieldGroups() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        "/api/aep/schemaregistry/tenant/fieldgroups?orderby=title&limit=200",
-        { headers: proxyHeaders(config) }
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        console.error(`[FieldGroups] API error ${res.status}:`, JSON.stringify(data, null, 2));
-        throw new Error(
-          `Field Groups API error ${res.status}: ${data?.detail?.title || data?.detail?.detail || data?.error || res.statusText} | URL: ${data?.url || "unknown"}`
-        );
-      }
-      const list: AepFieldGroup[] = data.results ?? [];
+      const headers = proxyHeaders(config);
+
+      const list = await paginateSchemaRegistry<AepFieldGroup>({
+        url: "/api/aep/schemaregistry/tenant/fieldgroups?orderby=title&limit=200",
+        headers,
+      });
+
       setFieldGroups(list);
       return list;
     } catch (err) {

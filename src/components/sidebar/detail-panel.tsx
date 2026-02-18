@@ -9,7 +9,46 @@ import type {
   FieldGroupNodeData,
   FlowNodeData,
   ErdNodeData,
+  ErdField,
 } from "@/lib/types";
+
+function FieldTable({ fields }: { fields: ErdField[] }) {
+  if (!fields || fields.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <p className="font-medium text-gray-500 text-xs mb-1">Fields ({fields.length}):</p>
+      <div className="max-h-[300px] overflow-y-auto border border-gray-100 rounded">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="bg-gray-50 text-gray-500 sticky top-0">
+              <th className="text-left px-1.5 py-0.5 font-medium">Path</th>
+              <th className="text-left px-1.5 py-0.5 font-medium">Type</th>
+              <th className="text-left px-1.5 py-0.5 font-medium w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {fields.map((f) => (
+              <tr key={f.path} className="border-t border-gray-50 hover:bg-gray-50">
+                <td className="px-1.5 py-0.5 font-mono text-gray-700 truncate max-w-[140px]" title={f.path}>
+                  {f.path}
+                </td>
+                <td className="px-1.5 py-0.5 text-gray-500">{f.type}</td>
+                <td className="px-1.5 py-0.5">
+                  {f.isPrimaryKey && (
+                    <span className="bg-blue-600 text-white rounded px-0.5 text-[9px] font-bold mr-0.5">PK</span>
+                  )}
+                  {f.isForeignKey && (
+                    <span className="bg-amber-600 text-white rounded px-0.5 text-[9px] font-bold">FK</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 interface DetailPanelProps {
   nodes: Node[];
@@ -43,6 +82,7 @@ function DatasetDetail({ data }: { data: DatasetNodeData }) {
           <p><span className="font-medium text-gray-500">Format:</span> {data.format}</p>
         )}
       </div>
+      <FieldTable fields={data.fields ?? []} />
     </div>
   );
 }
@@ -79,6 +119,7 @@ function SchemaDetail({ data }: { data: SchemaNodeData }) {
           </div>
         )}
       </div>
+      <FieldTable fields={data.fields ?? []} />
     </div>
   );
 }
@@ -95,15 +136,8 @@ function FieldGroupDetail({ data }: { data: FieldGroupNodeData }) {
       <div className="text-xs space-y-1">
         <p><span className="font-medium text-gray-500">$id:</span> {data.fieldGroupId}</p>
         <p><span className="font-medium text-gray-500">Fields:</span> {data.fieldCount}</p>
-        {data.keyFields.length > 0 && (
-          <div>
-            <p className="font-medium text-gray-500 mb-0.5">Key Fields:</p>
-            {data.keyFields.map((f) => (
-              <p key={f} className="text-[11px] font-mono text-gray-600 pl-2">{f}</p>
-            ))}
-          </div>
-        )}
       </div>
+      <FieldTable fields={data.fields ?? []} />
     </div>
   );
 }
@@ -143,6 +177,8 @@ function NodeDetail({ data }: { data: ErdNodeData }) {
 export function DetailPanel({ nodes }: DetailPanelProps) {
   const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
+  const focusNodeId = useCanvasStore((s) => s.focusNodeId);
+  const setFocusNode = useCanvasStore((s) => s.setFocusNode);
 
   const selectedNode = selectedNodeId
     ? nodes.find((n) => n.id === selectedNodeId)
@@ -156,12 +192,34 @@ export function DetailPanel({ nodes }: DetailPanelProps) {
       <div className="flex-1 p-3">
         {selectedNode ? (
           <div>
-            <button
-              onClick={() => setSelectedNode(null)}
-              className="text-[10px] text-blue-600 hover:underline mb-2"
-            >
-              Clear selection
-            </button>
+            <div className="flex items-center gap-2 mb-2">
+              <button
+                onClick={() => setSelectedNode(null)}
+                className="text-[10px] text-blue-600 hover:underline"
+              >
+                Clear selection
+              </button>
+              {selectedNode.type !== "summaryNode" && (
+                <>
+                  <span className="text-gray-300">|</span>
+                  {focusNodeId === selectedNode.id ? (
+                    <button
+                      onClick={() => setFocusNode(null)}
+                      className="text-[10px] text-orange-600 hover:underline"
+                    >
+                      Exit focus
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setFocusNode(selectedNode.id)}
+                      className="text-[10px] text-blue-600 hover:underline"
+                    >
+                      Focus on this node
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
             <NodeDetail data={selectedNode.data as unknown as ErdNodeData} />
           </div>
         ) : (

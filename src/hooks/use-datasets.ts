@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { AepConnectionConfig, AepDataset } from "@/lib/types";
+import { paginateCatalog } from "@/lib/paginate";
 
 function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   return {
@@ -19,21 +20,10 @@ export function useDatasets() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        "/api/aep/catalog/dataSets?limit=100&properties=name,description,schemaRef,tags,unifiedProfile,unifiedIdentity,fileDescription",
-        { headers: proxyHeaders(config) }
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        console.error(`[Datasets] API error ${res.status}:`, JSON.stringify(data, null, 2));
-        throw new Error(
-          `Catalog API error ${res.status}: ${data?.detail?.title || data?.detail?.detail || data?.error || res.statusText} | URL: ${data?.url || "unknown"}`
-        );
-      }
-      // Catalog returns { id: dataset, ... } — flatten to array
-      const list: AepDataset[] = Object.entries(data)
-        .filter(([key]) => !key.startsWith("_"))
-        .map(([id, ds]) => ({ ...(ds as AepDataset), id }));
+      const list = await paginateCatalog<AepDataset>({
+        url: "/api/aep/catalog/dataSets?limit=100&properties=name,description,schemaRef,tags,fileDescription",
+        headers: proxyHeaders(config),
+      });
       setDatasets(list);
       return list;
     } catch (err) {
