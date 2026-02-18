@@ -87,6 +87,20 @@ export function FilterControls({ filters, onToggle, collapsed, onToggleCollapse 
             Connected Flows Only
           </button>
         )}
+
+        {filters.schemas && (
+          <button
+            onClick={() => onToggle("identityLinks")}
+            title="Show edges between schemas that share the same primary identity namespace"
+            className={`inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium transition-all ${
+              filters.identityLinks
+                ? "bg-schema text-white border-schema"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Identity Links
+          </button>
+        )}
       </div>
     </div>
   );

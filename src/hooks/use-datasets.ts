@@ -21,7 +21,7 @@ export function useDatasets() {
     setError(null);
     try {
       const list = await paginateCatalog<AepDataset>({
-        url: "/api/aep/catalog/dataSets?limit=100&properties=name,description,schemaRef,tags,fileDescription",
+        url: "/api/aep/catalog/dataSets?limit=100&excludeSoftDeleted=true&properties=name,description,schemaRef,tags,fileDescription",
         headers: proxyHeaders(config),
       });
       setDatasets(list);

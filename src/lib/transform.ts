@@ -11,6 +11,7 @@ import type {
   SchemaNodeData,
   FieldGroupNodeData,
   FlowNodeData,
+  IdentityNodeData,
   RelationshipEdgeData,
 } from "./types";
 import { extractFields } from "./extract-fields";
@@ -316,6 +317,59 @@ function buildSchemaRelationshipEdges(
   });
 }
 
+function buildIdentityHubsAndEdges(
+  descriptors: AepDescriptor[],
+  schemaIdLookup: Map<string, string>
+): { nodes: Node<IdentityNodeData>[]; edges: Edge<RelationshipEdgeData>[] } {
+  const namespaceToSchemas = new Map<string, Array<{ schemaId: string; property: string }>>();
+
+  descriptors.forEach((d) => {
+    if (d["@type"] !== "xdm:descriptorIdentity" || !d["xdm:isPrimary"] || !d["xdm:namespace"]) return;
+    const schemaId = resolveSchemaId(d["xdm:sourceSchema"], schemaIdLookup);
+    const namespace = d["xdm:namespace"];
+    const entry = { schemaId, property: d["xdm:sourceProperty"] ?? "unknown" };
+    const list = namespaceToSchemas.get(namespace);
+    if (list) list.push(entry);
+    else namespaceToSchemas.set(namespace, [entry]);
+  });
+
+  const nodes: Node<IdentityNodeData>[] = [];
+  const edges: Edge<RelationshipEdgeData>[] = [];
+
+  namespaceToSchemas.forEach((schemas, namespace) => {
+    if (schemas.length < 2) return;
+    const hubId = `identity-${namespace}`;
+    nodes.push({
+      id: hubId,
+      type: "identityNode",
+      position: { x: 0, y: 0 },
+      data: {
+        entityType: "identity" as const,
+        label: namespace,
+        namespace,
+        schemaCount: schemas.length,
+      },
+    });
+    schemas.forEach(({ schemaId, property }) => {
+      edges.push({
+        id: `edge-identity-${namespace}-${schemaId}`,
+        source: hubId,
+        target: `schema-${schemaId}`,
+        type: "relationshipEdge",
+        data: {
+          relationshipType: "schema-identity" as const,
+          label: "shared identity",
+          fkLabel: namespace,
+          pkLabel: property,
+          targetField: property,
+        },
+      });
+    });
+  });
+
+  return { nodes, edges };
+}
+
 function buildFlowDatasetEdges(
   flows: AepFlow[],
   connectionMap: Map<string, AepConnection>,
@@ -367,7 +421,10 @@ export function transformToGraph(input: TransformInput) {
   const fieldGroupIdLookup = buildFieldGroupIdLookup(fieldGroups);
   const schemaIdLookup = buildSchemaIdLookup(schemas);
 
+  const identityHubs = buildIdentityHubsAndEdges(descriptors, schemaIdLookup);
+
   const nodes: Node[] = [
+    ...identityHubs.nodes,
     ...buildDatasetNodes(datasets, pkMap, schemaIdLookup, schemaFieldsMap),
     ...buildSchemaNodes(schemas, pkMap, schemaFieldsMap),
     ...buildFieldGroupNodes(fieldGroups),
@@ -380,6 +437,7 @@ export function transformToGraph(input: TransformInput) {
     ...buildDatasetSchemaEdges(datasets, schemaIdLookup),
     ...buildSchemaFieldGroupEdges(schemas, fieldGroupIds, fieldGroupIdLookup),
     ...buildSchemaRelationshipEdges(descriptors, schemaIdLookup),
+    ...identityHubs.edges,
     ...buildFlowDatasetEdges(flows, connectionMap, datasetIds),
   ];
 

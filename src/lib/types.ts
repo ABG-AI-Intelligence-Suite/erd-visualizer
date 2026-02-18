@@ -184,16 +184,36 @@ export interface FlowNodeData {
   isSystem: boolean;
 }
 
+export interface IdentityNodeData {
+  [key: string]: unknown;
+  entityType: "identity";
+  label: string;
+  namespace: string;
+  schemaCount: number;
+}
+
 export type ErdNodeData =
   | DatasetNodeData
   | SchemaNodeData
   | FieldGroupNodeData
-  | FlowNodeData;
+  | FlowNodeData
+  | IdentityNodeData;
+
+export type StepStatus = "pending" | "active" | "done";
+
+export interface ProgressStep {
+  id: string;
+  label: string;
+  status: StepStatus;
+  count?: number;
+  unit?: string;
+}
 
 export type RelationshipType =
   | "dataset-schema"
   | "schema-fieldgroup"
   | "schema-schema"
+  | "schema-identity"
   | "flow-dataset"
   | "flow-source";
 
@@ -219,4 +239,5 @@ export interface FilterState {
   showSystem: boolean;
   showCustom: boolean;
   connectedFlowsOnly: boolean;
+  identityLinks: boolean;
 }

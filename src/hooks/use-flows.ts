@@ -63,29 +63,17 @@ export function useFlows() {
       if (connectionIds.length === 0) return [];
 
       const headers = proxyHeaders(config);
-      const fetched: AepConnection[] = [];
+      const results = await Promise.allSettled(
+        connectionIds.map(async (connId) => {
+          const res = await fetch(`/api/aep/flowservice/targetConnections/${connId}`, { headers });
+          if (!res.ok) return null;
+          return (await res.json()) as AepConnection;
+        })
+      );
 
-      for (let i = 0; i < connectionIds.length; i += 5) {
-        const batch = connectionIds.slice(i, i + 5);
-        const results = await Promise.allSettled(
-          batch.map(async (connId) => {
-            const res = await fetch(
-              `/api/aep/flowservice/targetConnections/${connId}`,
-              { headers }
-            );
-            if (!res.ok) return null;
-            return (await res.json()) as AepConnection;
-          })
-        );
-
-        for (const r of results) {
-          if (r.status === "fulfilled" && r.value) {
-            fetched.push(r.value);
-          }
-        }
-      }
-
-      return fetched;
+      return results
+        .filter((r): r is PromiseFulfilledResult<AepConnection> => r.status === "fulfilled" && r.value !== null)
+        .map((r) => r.value);
     },
     []
   );
@@ -98,29 +86,17 @@ export function useFlows() {
       if (flowIds.length === 0) return [];
 
       const headers = proxyHeaders(config);
-      const fetched: AepFlow[] = [];
+      const results = await Promise.allSettled(
+        flowIds.map(async (flowId) => {
+          const res = await fetch(`/api/aep/flowservice/flows/${flowId}`, { headers });
+          if (!res.ok) return null;
+          return (await res.json()) as AepFlow;
+        })
+      );
 
-      for (let i = 0; i < flowIds.length; i += 5) {
-        const batch = flowIds.slice(i, i + 5);
-        const results = await Promise.allSettled(
-          batch.map(async (flowId) => {
-            const res = await fetch(
-              `/api/aep/flowservice/flows/${flowId}`,
-              { headers }
-            );
-            if (!res.ok) return null;
-            return (await res.json()) as AepFlow;
-          })
-        );
-
-        for (const r of results) {
-          if (r.status === "fulfilled" && r.value) {
-            fetched.push(r.value);
-          }
-        }
-      }
-
-      return fetched;
+      return results
+        .filter((r): r is PromiseFulfilledResult<AepFlow> => r.status === "fulfilled" && r.value !== null)
+        .map((r) => r.value);
     },
     []
   );

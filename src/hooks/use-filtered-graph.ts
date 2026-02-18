@@ -32,9 +32,9 @@ const NODE_TYPE_BY_FILTER: Record<EntityFilterKey, string> = {
   flows: "flowNode",
 };
 const FILTER_TYPES: EntityFilterKey[] = ["datasets", "schemas", "fieldGroups", "flows"];
-const SCHEMA_COL_GAP = 460;
-const SCHEMA_ROW_GAP = 170;
-const SCHEMA_COMPONENT_GAP = 240;
+const SCHEMA_LEVEL_GAP = 300;
+const SCHEMA_NODE_GAP = 380;
+const SCHEMA_COMPONENT_GAP = 300;
 const FOCUS_SCHEMA_PAGE_SIZE = 5;
 const FOCUS_NODE_PAGE_SIZE = 20;
 
@@ -149,23 +149,32 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
   });
 
   const positions = new Map<string, { x: number; y: number }>();
-  let yOffset = 40;
+  let xOffset = 40;
 
   for (let c = 0; c < components.length; c++) {
     const componentIds = components[c];
     const componentSet = new Set(componentIds);
 
+    // Identity hub nodes become natural roots due to high degree; prefer them explicitly.
     let rootId = componentIds[0];
     for (let i = 1; i < componentIds.length; i++) {
       const candidateId = componentIds[i];
-      const candidateDegree = (adjacency.get(candidateId) ?? []).length;
-      const rootDegree = (adjacency.get(rootId) ?? []).length;
-      if (candidateDegree > rootDegree) {
+      const isIdentityHub = candidateId.startsWith("identity-");
+      const rootIsIdentityHub = rootId.startsWith("identity-");
+      if (isIdentityHub && !rootIsIdentityHub) {
         rootId = candidateId;
-      } else if (candidateDegree === rootDegree) {
-        rootId = labelForNode(candidateId).localeCompare(labelForNode(rootId)) < 0
-          ? candidateId
-          : rootId;
+        continue;
+      }
+      if (isIdentityHub === rootIsIdentityHub) {
+        const candidateDegree = (adjacency.get(candidateId) ?? []).length;
+        const rootDegree = (adjacency.get(rootId) ?? []).length;
+        if (candidateDegree > rootDegree) {
+          rootId = candidateId;
+        } else if (candidateDegree === rootDegree) {
+          rootId = labelForNode(candidateId).localeCompare(labelForNode(rootId)) < 0
+            ? candidateId
+            : rootId;
+        }
       }
     }
 
@@ -184,22 +193,21 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
       }
     }
 
-    const columns = new Map<number, string[]>();
+    const rows = new Map<number, string[]>();
     for (let i = 0; i < componentIds.length; i++) {
       const nodeId = componentIds[i];
       const level = levels.get(nodeId) ?? 0;
-      const ids = columns.get(level);
+      const ids = rows.get(level);
       if (ids) ids.push(nodeId);
-      else columns.set(level, [nodeId]);
+      else rows.set(level, [nodeId]);
     }
 
-    const orderedLevels = Array.from(columns.keys()).sort((a, b) => a - b);
+    const orderedLevels = Array.from(rows.keys()).sort((a, b) => a - b);
     const levelIndexes = new Map<number, Map<string, number>>();
-    let componentMaxRows = 0;
 
     for (let i = 0; i < orderedLevels.length; i++) {
       const level = orderedLevels[i];
-      const ids = columns.get(level) ?? [];
+      const ids = rows.get(level) ?? [];
       const previousIndex = levelIndexes.get(level - 1);
 
       ids.sort((a, b) => {
@@ -219,8 +227,7 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
             total += idx;
             count += 1;
           }
-          if (count === 0) return Number.MAX_SAFE_INTEGER;
-          return total / count;
+          return count === 0 ? Number.MAX_SAFE_INTEGER : total / count;
         };
 
         const aAvg = avgParentIndex(aParents);
@@ -230,23 +237,26 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
       });
 
       const indexMap = new Map<string, number>();
-      for (let row = 0; row < ids.length; row++) indexMap.set(ids[row], row);
+      for (let col = 0; col < ids.length; col++) indexMap.set(ids[col], col);
       levelIndexes.set(level, indexMap);
-      componentMaxRows = Math.max(componentMaxRows, ids.length);
     }
+
+    // Top-down layout: levels → y axis, nodes within level → x axis, centered per level.
+    const maxCols = Math.max(...orderedLevels.map((l) => (rows.get(l) ?? []).length));
 
     for (let i = 0; i < orderedLevels.length; i++) {
       const level = orderedLevels[i];
-      const ids = columns.get(level) ?? [];
-      for (let row = 0; row < ids.length; row++) {
-        positions.set(ids[row], {
-          x: level * SCHEMA_COL_GAP + 40,
-          y: row * SCHEMA_ROW_GAP + yOffset,
+      const ids = rows.get(level) ?? [];
+      const centerOffset = ((maxCols - ids.length) / 2) * SCHEMA_NODE_GAP;
+      for (let col = 0; col < ids.length; col++) {
+        positions.set(ids[col], {
+          x: xOffset + centerOffset + col * SCHEMA_NODE_GAP,
+          y: level * SCHEMA_LEVEL_GAP + 40,
         });
       }
     }
 
-    yOffset += Math.max(1, componentMaxRows) * SCHEMA_ROW_GAP + SCHEMA_COMPONENT_GAP;
+    xOffset += maxCols * SCHEMA_NODE_GAP + SCHEMA_COMPONENT_GAP;
   }
 
   return nodes.map((node) => ({
@@ -385,24 +395,35 @@ export function useFilteredGraph() {
     let filteredNodes = isFocusActive ? rawNodes : filterByType(rawNodes, deferredFilters);
 
     if (deferredViewMode === "schema") {
-      const schemaNodes: Node[] = [];
-      const schemaIds = new Set<string>();
+      const schemaViewNodes: Node[] = [];
+      const schemaViewIds = new Set<string>();
       for (let i = 0; i < filteredNodes.length; i++) {
         const node = filteredNodes[i];
-        if (node.type !== "schemaNode") continue;
-        schemaNodes.push(node);
-        schemaIds.add(node.id);
+        const isSchema = node.type === "schemaNode";
+        const isIdentityHub = node.type === "identityNode" && deferredFilters.identityLinks;
+        if (!isSchema && !isIdentityHub) continue;
+        schemaViewNodes.push(node);
+        schemaViewIds.add(node.id);
       }
-      filteredNodes = schemaNodes;
+      filteredNodes = schemaViewNodes;
 
       const schemaEdges: Edge[] = [];
       for (let i = 0; i < rawEdges.length; i++) {
         const edge = rawEdges[i];
         const relType = (edge.data as RelationshipEdgeData | undefined)?.relationshipType;
-        if (relType !== "schema-schema") continue;
-        if (schemaIds.has(edge.source) && schemaIds.has(edge.target)) schemaEdges.push(edge);
+        if (relType !== "schema-schema" && relType !== "schema-identity") continue;
+        if (relType === "schema-identity" && !deferredFilters.identityLinks) continue;
+        if (schemaViewIds.has(edge.source) && schemaViewIds.has(edge.target)) schemaEdges.push(edge);
       }
       candidateEdges = schemaEdges;
+    } else {
+      if (!deferredFilters.identityLinks) {
+        candidateEdges = rawEdges.filter(
+          (e) => (e.data as RelationshipEdgeData | undefined)?.relationshipType !== "schema-identity"
+        );
+      }
+      // Always strip identity hub nodes from full view — they're schema-view-only.
+      filteredNodes = filteredNodes.filter((n) => n.type !== "identityNode");
     }
 
     if (!isFocusActive && deferredFilters.profileOnly) {
@@ -514,8 +535,8 @@ export function useFilteredGraph() {
       }
       filteredNodes = limitedNodes;
 
-      const COL_GAP = deferredViewMode === "schema" ? 460 : 360;
-      const ROW_GAP = deferredViewMode === "schema" ? 170 : 180;
+      const COL_GAP = deferredViewMode === "schema" ? SCHEMA_NODE_GAP : 360;
+      const ROW_GAP = deferredViewMode === "schema" ? SCHEMA_LEVEL_GAP : 180;
       const columns = new Map<number, string[]>();
       const putInColumn = (column: number, id: string) => {
         const list = columns.get(column);

@@ -23,14 +23,15 @@ export async function paginateSchemaRegistry<T>(
   const all: T[] = [];
   let retries = 0;
   const maxRetries = 2;
+  let page = 0;
 
-  for (let page = 0; url && page < maxPages; page++) {
+  for (; url && page < maxPages; page++) {
     const res: Response = await fetch(url, { headers });
     if (!res.ok) {
       if (page === 0) throw new Error(formatApiErrorMessage(res.status, url));
       if (retries < maxRetries) {
         retries++;
-        page--; // retry same page
+        page--;
         continue;
       }
       break;
@@ -50,6 +51,10 @@ export async function paginateSchemaRegistry<T>(
     }
   }
 
+  if (page >= maxPages && url !== null) {
+    console.warn(`[paginateSchemaRegistry] Hit page cap (${maxPages}) for ${opts.url.split("?")[0]} — results may be truncated.`);
+  }
+
   return all;
 }
 
@@ -60,8 +65,10 @@ export async function paginateCatalog<T>(
   const limit = 100;
   let start = 0;
   const all: Array<T & { id: string }> = [];
+  let page = 0;
+  let hitCap = false;
 
-  for (let page = 0; page < maxPages; page++) {
+  for (; page < maxPages; page++) {
     const separator = opts.url.includes("?") ? "&" : "?";
     const url = `${opts.url}${separator}start=${start}`;
     const res = await fetch(url, { headers });
@@ -75,6 +82,12 @@ export async function paginateCatalog<T>(
 
     if (entries.length < limit) break;
     start += limit;
+
+    if (page === maxPages - 1) hitCap = true;
+  }
+
+  if (hitCap) {
+    console.warn(`[paginateCatalog] Hit page cap (${maxPages}) for ${opts.url.split("?")[0]} — results may be truncated.`);
   }
 
   return all;
@@ -86,8 +99,9 @@ export async function paginateFlowService<T>(
   const { headers, maxPages = 20 } = opts;
   let url: string | null = opts.url;
   const all: T[] = [];
+  let page = 0;
 
-  for (let page = 0; url && page < maxPages; page++) {
+  for (; url && page < maxPages; page++) {
     const res: Response = await fetch(url, { headers });
     if (!res.ok) {
       if (page === 0) throw new Error(formatApiErrorMessage(res.status, url));
@@ -112,6 +126,10 @@ export async function paginateFlowService<T>(
     } else {
       url = null;
     }
+  }
+
+  if (page >= maxPages && url !== null) {
+    console.warn(`[paginateFlowService] Hit page cap (${maxPages}) for ${opts.url.split("?")[0]} — results may be truncated.`);
   }
 
   return all;

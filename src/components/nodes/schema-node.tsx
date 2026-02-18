@@ -47,8 +47,10 @@ function SchemaNodeComponent({ id, data }: NodeProps) {
         )}
       </div>
       <FieldList nodeId={id} fields={d.fields ?? []} accentColor="schema" />
-      <Handle type="source" position={Position.Right} className="!bg-schema !w-2.5 !h-2.5" />
-      <Handle type="target" position={Position.Left} className="!bg-schema !w-2.5 !h-2.5" />
+      <Handle id="top" type="target" position={Position.Top} className="!bg-schema !w-2.5 !h-2.5" />
+      <Handle id="right" type="source" position={Position.Right} className="!bg-schema !w-2.5 !h-2.5" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="!bg-schema !w-2.5 !h-2.5" />
+      <Handle id="left" type="target" position={Position.Left} className="!bg-schema !w-2.5 !h-2.5" />
     </div>
   );
 }

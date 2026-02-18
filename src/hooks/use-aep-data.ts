@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { AepConnectionConfig, AepConnection, AepSchema } from "@/lib/types";
+import type { AepConnectionConfig, AepConnection, AepDataset, AepDescriptor, ProgressStep, StepStatus } from "@/lib/types";
 import { transformToGraph, type TransformInput } from "@/lib/transform";
 import type { Node, Edge } from "@xyflow/react";
 import { useDatasets } from "./use-datasets";
@@ -15,6 +15,31 @@ function getSettledError(result: PromiseRejectedResult): string {
 }
 
 const NS_PREFIX = "https://ns.adobe.com/";
+
+// Collects unique schema IDs from dataset schemaRefs.
+function schemaIdsFromDatasets(datasets: AepDataset[]): Set<string> {
+  const ids = new Set<string>();
+  for (const ds of datasets) {
+    if (ds.schemaRef?.id) ids.add(ds.schemaRef.id);
+  }
+  return ids;
+}
+
+// Adds schema IDs from relationship descriptors so cross-schema relationships
+// are complete even when one side has no dataset.
+function schemaIdsFromDescriptors(descriptors: AepDescriptor[]): Set<string> {
+  const ids = new Set<string>();
+  for (const d of descriptors) {
+    if (
+      d["@type"] === "xdm:descriptorOneToOne" ||
+      d["@type"] === "xdm:descriptorManyToOne"
+    ) {
+      if (d["xdm:sourceSchema"]) ids.add(d["xdm:sourceSchema"]);
+      if (d["xdm:destinationSchema"]) ids.add(d["xdm:destinationSchema"]);
+    }
+  }
+  return ids;
+}
 const GRAPH_CACHE_KEY = "aep-erd:last-graph:v1";
 const GRAPH_CACHE_META_KEY = "aep-erd:last-graph:meta:v2";
 const GRAPH_CACHE_DB_NAME = "aep-erd-cache";
@@ -98,24 +123,20 @@ function writeGraphToIndexedDb(payload: CachedGraphV2) {
     });
 }
 
-function buildSchemaIdSet(schemas: AepSchema[]): Set<string> {
-  const ids = new Set<string>();
-  schemas.forEach((s) => {
-    ids.add(s.$id);
-    if (s["meta:altId"]) ids.add(s["meta:altId"]);
-    if (s.$id.startsWith(NS_PREFIX)) {
-      ids.add("_" + s.$id.slice(NS_PREFIX.length));
-    } else if (s.$id.startsWith("_")) {
-      ids.add(NS_PREFIX + s.$id.slice(1));
-    }
-  });
-  return ids;
+function collectFieldGroupRefs(schemas: { "meta:extends"?: string[]; allOf?: Array<{ $ref: string }> }[]): string[] {
+  const refs = new Set<string>();
+  for (const schema of schemas) {
+    schema["meta:extends"]?.forEach((ref) => refs.add(ref));
+    schema.allOf?.forEach((entry) => {
+      if (entry.$ref) refs.add(entry.$ref);
+    });
+  }
+  return Array.from(refs);
 }
 
-function buildSchemaIdLookup(schemas: AepSchema[]): Map<string, string> {
+function buildSchemaIdLookup(schemas: { $id: string; "meta:altId"?: string }[]): Map<string, string> {
   const lookup = new Map<string, string>();
-  for (let i = 0; i < schemas.length; i++) {
-    const schema = schemas[i];
+  for (const schema of schemas) {
     lookup.set(schema.$id, schema.$id);
     if (schema["meta:altId"]) lookup.set(schema["meta:altId"], schema.$id);
     if (schema.$id.startsWith(NS_PREFIX)) lookup.set("_" + schema.$id.slice(NS_PREFIX.length), schema.$id);
@@ -179,136 +200,155 @@ function applyGraphOnNextFrame(setGraph: (nodes: Node[], edges: Edge[]) => void,
   });
 }
 
+const INITIAL_STEPS: ProgressStep[] = [
+  { id: "datasets",      label: "Fetching datasets",         status: "pending", unit: "datasets" },
+  { id: "descriptors",   label: "Fetching descriptors",      status: "pending", unit: "descriptors" },
+  { id: "flows",         label: "Fetching flows",            status: "pending", unit: "flows" },
+  { id: "schemas",       label: "Fetching schemas",          status: "pending", unit: "schemas" },
+  { id: "flow-details",  label: "Fetching flow details",     status: "pending" },
+  { id: "field-groups",  label: "Fetching field groups",     status: "pending", unit: "field groups" },
+  { id: "connections",   label: "Resolving connections",     status: "pending" },
+  { id: "schema-fields", label: "Loading field definitions", status: "pending", unit: "schemas" },
+  { id: "transform",     label: "Building graph",            status: "pending" },
+];
+
 export function useAepData() {
   const { fetchDatasets } = useDatasets();
-  const { fetchSchemas, fetchMissingSchemas } = useSchemas();
-  const { fetchFieldGroups } = useFieldGroups();
+  const { fetchDescriptors, fetchSchemasByIds } = useSchemas();
+  const { fetchFieldGroupsByRefs } = useFieldGroups();
   const { fetchFlows, fetchMissingConnections, fetchFlowDetails } = useFlows();
   const { fetchSchemaFields } = useSchemaFields();
   const setGraph = useCanvasStore((s) => s.setGraph);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ProgressStep[]>(INITIAL_STEPS);
+
+  const updateStep = useCallback((id: string, status: StepStatus, count?: number) => {
+    setProgress((prev) =>
+      prev.map((s) =>
+        s.id === id ? { ...s, status, ...(count !== undefined ? { count } : {}) } : s
+      )
+    );
+  }, []);
 
   const fetchAll = useCallback(
     async (config: AepConnectionConfig) => {
       setLoading(true);
       setError(null);
+      setProgress(INITIAL_STEPS.map((s) => ({ ...s, status: "pending" as StepStatus })));
       try {
-        const results = await Promise.allSettled([
-          fetchDatasets(config),
-          fetchSchemas(config),
-          fetchFieldGroups(config),
-          fetchFlows(config),
+        // Phase 1: datasets, descriptors, flows — all independent, run in parallel.
+        updateStep("datasets",    "active");
+        updateStep("descriptors", "active");
+        updateStep("flows",       "active");
+
+        const [datasetsResult, descriptorsResult, flowsResult] = await Promise.allSettled([
+          fetchDatasets(config).then((r)    => { updateStep("datasets",    "done", r.length);         return r; }),
+          fetchDescriptors(config).then((r) => { updateStep("descriptors", "done", r.length);         return r; }),
+          fetchFlows(config).then((r)       => { updateStep("flows",       "done", r.flows.length);   return r; }),
         ]);
 
         const errors: string[] = [];
-        const datasets = results[0].status === "fulfilled" ? results[0].value : (errors.push(getSettledError(results[0])), []);
-        const schemaResult = results[1].status === "fulfilled" ? results[1].value : (errors.push(getSettledError(results[1])), { schemas: [], descriptors: [] });
-        const fieldGroups = results[2].status === "fulfilled" ? results[2].value : (errors.push(getSettledError(results[2])), []);
-        const flowResult = results[3].status === "fulfilled" ? results[3].value : (errors.push(getSettledError(results[3])), { flows: [], connections: [] });
+        const datasets    = datasetsResult.status    === "fulfilled" ? datasetsResult.value    : (errors.push(getSettledError(datasetsResult)),    []);
+        const descriptors = descriptorsResult.status === "fulfilled" ? descriptorsResult.value : (errors.push(getSettledError(descriptorsResult)), []);
+        const flowResult  = flowsResult.status       === "fulfilled" ? flowsResult.value       : (errors.push(getSettledError(flowsResult)),       { flows: [], connections: [] });
 
-        let allSchemas = schemaResult.schemas;
+        // Phase 2: fetch schemas by exact IDs (from datasets + relationship descriptors)
+        //          and flow details in parallel — both only need phase 1 results.
+        const datasetSchemaIds  = schemaIdsFromDatasets(datasets);
+        const descriptorSchemaIds = schemaIdsFromDescriptors(descriptors);
+        const combinedSchemaIds = new Set<string>();
+        datasetSchemaIds.forEach((id) => combinedSchemaIds.add(id));
+        descriptorSchemaIds.forEach((id) => combinedSchemaIds.add(id));
+        const allSchemaIds = Array.from(combinedSchemaIds);
 
-        const knownIds = buildSchemaIdSet(allSchemas);
-        const missingRefs = new Set<string>();
-        datasets.forEach((ds) => {
-          if (ds.schemaRef?.id && !knownIds.has(ds.schemaRef.id)) {
-            missingRefs.add(ds.schemaRef.id);
-          }
-        });
+        updateStep("schemas",      "active");
+        updateStep("flow-details", "active");
 
-        if (missingRefs.size > 0) {
-          const backfilled = await fetchMissingSchemas(
-            Array.from(missingRefs),
-            config
-          );
-          if (backfilled.length > 0) {
-            allSchemas = [...allSchemas, ...backfilled];
-          }
-        }
-
-        if (errors.length > 0) {
-          setError(errors.join("\n\n"));
-        }
-
-        let allConnections = flowResult.connections;
-        const connMap = new Map(allConnections.map((c) => [c.id, c]));
-
+        const connMap = new Map(flowResult.connections.map((c) => [c.id, c]));
         const flowsWithTargets = flowResult.flows.filter(
           (f) => f.targetConnectionIds && f.targetConnectionIds.length > 0
         );
-        if (flowsWithTargets.length > 0) {
-          const flowDetails = await fetchFlowDetails(
-            flowsWithTargets.map((f) => f.id),
-            config
-          );
-          flowDetails.forEach((flow) => {
-            flow.targetConnections?.forEach((tc) => {
-              if (tc.id && tc.params) {
-                const conn: AepConnection = {
-                  id: tc.id,
-                  name: connMap.get(tc.id)?.name ?? tc.id,
-                  state: connMap.get(tc.id)?.state ?? "enabled",
-                  connectionSpec: tc.connectionSpec,
-                  params: tc.params,
-                };
-                connMap.set(tc.id, conn);
-              }
+
+        const [schemasResult, flowDetailsResult] = await Promise.allSettled([
+          fetchSchemasByIds(allSchemaIds, config).then((r) => { updateStep("schemas", "done", r.length); return r; }),
+          fetchFlowDetails(flowsWithTargets.map((f) => f.id), config).then((r) => {
+            updateStep("flow-details", "done", r.length);
+            r.forEach((flow) => {
+              flow.targetConnections?.forEach((tc) => {
+                if (tc.id && tc.params) {
+                  connMap.set(tc.id, {
+                    id: tc.id,
+                    name: connMap.get(tc.id)?.name ?? tc.id,
+                    state: connMap.get(tc.id)?.state ?? "enabled",
+                    connectionSpec: tc.connectionSpec,
+                    params: tc.params,
+                  } as AepConnection);
+                }
+              });
             });
-          });
-        }
+            return r;
+          }),
+        ]);
 
-        const missingConnIds: string[] = [];
-        flowResult.flows.forEach((f) => {
-          f.targetConnectionIds?.forEach((connId) => {
-            const conn = connMap.get(connId);
-            if (!conn || (!conn.params?.dataSetId && !conn.params?.datasets?.length)) {
-              missingConnIds.push(connId);
-            }
-          });
-        });
-        if (missingConnIds.length > 0) {
-          const backfilledConns = await fetchMissingConnections(
-            Array.from(new Set(missingConnIds)),
-            config
-          );
-          backfilledConns.forEach((c) => connMap.set(c.id, c));
-        }
+        const schemas = schemasResult.status === "fulfilled" ? schemasResult.value : (errors.push(getSettledError(schemasResult)), []);
+        if (flowDetailsResult.status === "rejected") errors.push(getSettledError(flowDetailsResult));
 
-        allConnections = Array.from(connMap.values());
+        // Phase 3: field groups by refs, missing connections, schema fields
+        //          — all depend on phase 2, and are independent of each other.
+        const fgRefs = collectFieldGroupRefs(schemas);
 
-        const schemaIdLookup = buildSchemaIdLookup(allSchemas);
-        const referencedSchemaIds = new Set<string>();
-        datasets.forEach((ds) => {
-          if (ds.schemaRef?.id) {
-            const canonicalId = schemaIdLookup.get(ds.schemaRef.id);
-            if (canonicalId) referencedSchemaIds.add(canonicalId);
-          }
-        });
+        const missingConnIds = Array.from(new Set(
+          flowResult.flows.flatMap((f) =>
+            (f.targetConnectionIds ?? []).filter((connId) => {
+              const c = connMap.get(connId);
+              return !c || (!c.params?.dataSetId && !c.params?.datasets?.length);
+            })
+          )
+        ));
 
-        let schemaFieldsMap;
-        if (referencedSchemaIds.size > 0) {
-          try {
-            schemaFieldsMap = await fetchSchemaFields(
-              Array.from(referencedSchemaIds),
-              config,
-              schemaResult.descriptors
-            );
-          } catch {
-          }
-        }
+        const schemaIdLookup = buildSchemaIdLookup(schemas);
+        const referencedSchemaIds = datasets
+          .map((ds) => ds.schemaRef?.id ? schemaIdLookup.get(ds.schemaRef.id) : undefined)
+          .filter((id): id is string => id !== undefined);
+        const uniqueSchemaIds = Array.from(new Set(referencedSchemaIds));
 
+        updateStep("field-groups",  "active");
+        updateStep("connections",   "active");
+        updateStep("schema-fields", "active");
+
+        const [fieldGroupsResult, connectionsResult, schemaFieldsResult] = await Promise.allSettled([
+          fetchFieldGroupsByRefs(fgRefs, config).then((r) => { updateStep("field-groups", "done", r.length); return r; }),
+          fetchMissingConnections(missingConnIds, config).then((r) => {
+            r.forEach((c) => connMap.set(c.id, c));
+            updateStep("connections", "done", r.length);
+            return r;
+          }),
+          uniqueSchemaIds.length > 0
+            ? fetchSchemaFields(uniqueSchemaIds, config, descriptors).then((r) => { updateStep("schema-fields", "done", r.size); return r; })
+            : Promise.resolve(new Map()).then((r) => { updateStep("schema-fields", "done", 0); return r; }),
+        ]);
+
+        const fieldGroups     = fieldGroupsResult.status  === "fulfilled" ? fieldGroupsResult.value  : (errors.push(getSettledError(fieldGroupsResult)),  []);
+        if (connectionsResult.status === "rejected") errors.push(getSettledError(connectionsResult));
+        const schemaFieldsMap = schemaFieldsResult.status === "fulfilled" ? schemaFieldsResult.value : undefined;
+
+        if (errors.length > 0) setError(errors.join("\n\n"));
+
+        // Phase 4: build graph.
+        updateStep("transform", "active");
         const { nodes, edges } = transformToGraph({
           datasets,
-          schemas: allSchemas,
+          schemas,
           fieldGroups,
           flows: flowResult.flows,
-          connections: allConnections,
-          descriptors: schemaResult.descriptors,
+          connections: Array.from(connMap.values()),
+          descriptors,
           schemaFieldsMap,
         });
 
+        updateStep("transform", "done", nodes.length);
         setGraph(nodes, edges);
         saveGraphToCache(config.orgId, config.sandbox, nodes, edges);
       } catch (err) {
@@ -318,7 +358,7 @@ export function useAepData() {
         setLoading(false);
       }
     },
-    [fetchDatasets, fetchSchemas, fetchMissingSchemas, fetchFieldGroups, fetchFlows, fetchFlowDetails, fetchMissingConnections, fetchSchemaFields, setGraph]
+    [fetchDatasets, fetchDescriptors, fetchSchemasByIds, fetchFieldGroupsByRefs, fetchFlows, fetchFlowDetails, fetchMissingConnections, fetchSchemaFields, updateStep, setGraph]
   );
 
   const loadMockData = useCallback((input: TransformInput) => {
@@ -346,5 +386,5 @@ export function useAepData() {
     }
   }, [setGraph]);
 
-  return { loading, error, fetchAll, loadMockData, restoreCachedGraph };
+  return { loading, error, progress, fetchAll, loadMockData, restoreCachedGraph };
 }

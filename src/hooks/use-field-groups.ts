@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import type { AepConnectionConfig, AepFieldGroup } from "@/lib/types";
-import { paginateSchemaRegistry } from "@/lib/paginate";
+
+const NS_PREFIX = "https://ns.adobe.com/";
 
 function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   return {
@@ -13,47 +14,50 @@ function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
 
 function dedupeFieldGroupsById(items: AepFieldGroup[]): AepFieldGroup[] {
   const map = new Map<string, AepFieldGroup>();
-  for (let i = 0; i < items.length; i++) {
-    const fieldGroup = items[i];
-    map.set(fieldGroup.$id, fieldGroup);
-  }
+  for (const fg of items) map.set(fg.$id, fg);
   return Array.from(map.values());
 }
 
 export function useFieldGroups() {
-  const [fieldGroups, setFieldGroups] = useState<AepFieldGroup[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Fetches field groups by their refs collected from schema meta:extends / allOf.$ref.
+  // Searches both tenant and global registries in parallel for each ref.
+  const fetchFieldGroupsByRefs = useCallback(
+    async (refs: string[], config: AepConnectionConfig): Promise<AepFieldGroup[]> => {
+      if (refs.length === 0) return [];
 
-  const fetch_ = useCallback(async (config: AepConnectionConfig) => {
-    setLoading(true);
-    setError(null);
-    try {
       const headers = proxyHeaders(config);
+      const requestHeaders = { ...headers, Accept: "application/vnd.adobe.xed+json" };
 
-      const [tenantList, globalList] = await Promise.all([
-        paginateSchemaRegistry<AepFieldGroup>({
-        url: "/api/aep/schemaregistry/tenant/fieldgroups?orderby=title&limit=200",
-        headers,
-        }),
-        paginateSchemaRegistry<AepFieldGroup>({
-          url: "/api/aep/schemaregistry/global/fieldgroups?orderby=title&limit=200",
-          headers,
-        }).catch(() => [] as AepFieldGroup[]),
-      ]);
+      const results = await Promise.allSettled(
+        refs.map(async (ref) => {
+          const filterValue = ref.startsWith(NS_PREFIX) ? ref : NS_PREFIX + ref.slice(1);
+          const qs = new URLSearchParams({ property: `$id==${filterValue}`, limit: "1" });
+          const tenantUrl = `/api/aep/schemaregistry/tenant/fieldgroups?${qs.toString()}`;
+          const globalUrl = `/api/aep/schemaregistry/global/fieldgroups?${qs.toString()}`;
 
-      const list = dedupeFieldGroupsById([...tenantList, ...globalList]);
+          const [tenantRes, globalRes] = await Promise.allSettled([
+            fetch(tenantUrl, { headers: requestHeaders }),
+            fetch(globalUrl, { headers: requestHeaders }),
+          ]);
 
-      setFieldGroups(list);
-      return list;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to fetch field groups";
-      setError(msg);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+          for (const candidate of [tenantRes, globalRes]) {
+            if (candidate.status !== "fulfilled" || !candidate.value.ok) continue;
+            const data = await candidate.value.json();
+            const fgs: AepFieldGroup[] = data.results ?? [];
+            if (fgs.length > 0) return fgs[0];
+          }
+          return null;
+        })
+      );
 
-  return { fieldGroups, loading, error, fetchFieldGroups: fetch_ };
+      const fetched = results
+        .filter((r): r is PromiseFulfilledResult<AepFieldGroup> => r.status === "fulfilled" && r.value !== null)
+        .map((r) => r.value);
+
+      return dedupeFieldGroupsById(fetched);
+    },
+    []
+  );
+
+  return { fetchFieldGroupsByRefs };
 }

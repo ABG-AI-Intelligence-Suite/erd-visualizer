@@ -1,6 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import type { AepConnectionConfig, AepSchema, AepDescriptor } from "@/lib/types";
 import { paginateSchemaRegistry } from "@/lib/paginate";
+
+const NS_PREFIX = "https://ns.adobe.com/";
 
 function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   return {
@@ -11,138 +13,76 @@ function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   };
 }
 
-const NS_PREFIX = "https://ns.adobe.com/";
-
 function dedupeSchemasById(items: AepSchema[]): AepSchema[] {
   const map = new Map<string, AepSchema>();
-  for (let i = 0; i < items.length; i++) {
-    const schema = items[i];
-    map.set(schema.$id, schema);
-  }
+  for (const schema of items) map.set(schema.$id, schema);
   return Array.from(map.values());
 }
 
 function dedupeDescriptorsById(items: AepDescriptor[]): AepDescriptor[] {
   const map = new Map<string, AepDescriptor>();
-  for (let i = 0; i < items.length; i++) {
-    const descriptor = items[i];
-    map.set(descriptor["@id"], descriptor);
-  }
+  for (const d of items) map.set(d["@id"], d);
   return Array.from(map.values());
 }
 
 export function useSchemas() {
-  const [schemas, setSchemas] = useState<AepSchema[]>([]);
-  const [descriptors, setDescriptors] = useState<AepDescriptor[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetch_ = useCallback(async (config: AepConnectionConfig) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const headers = proxyHeaders(config);
-
-      const [
-        tenantSchemas,
-        globalSchemas,
-        tenantDescriptors,
-        globalDescriptors,
-      ] = await Promise.all([
-        paginateSchemaRegistry<AepSchema>({
-          url: "/api/aep/schemaregistry/tenant/schemas?limit=200",
-          headers,
-        }),
-        paginateSchemaRegistry<AepSchema>({
-          url: "/api/aep/schemaregistry/global/schemas?limit=200",
-          headers,
-        }).catch(() => [] as AepSchema[]),
-        paginateSchemaRegistry<AepDescriptor>({
-          url: "/api/aep/schemaregistry/tenant/descriptors?limit=300",
-          headers,
-        }).catch((err) => {
-          console.warn(`[Descriptors] Fetch failed: ${err.message}`);
-          return [] as AepDescriptor[];
-        }),
-        paginateSchemaRegistry<AepDescriptor>({
-          url: "/api/aep/schemaregistry/global/descriptors?limit=300",
-          headers,
-        }).catch(() => [] as AepDescriptor[]),
-      ]);
-
-      const schemaList = dedupeSchemasById([...tenantSchemas, ...globalSchemas]);
-      const descriptorList = dedupeDescriptorsById([
-        ...tenantDescriptors,
-        ...globalDescriptors,
-      ]);
-
-      setSchemas(schemaList);
-      setDescriptors(descriptorList);
-
-      return { schemas: schemaList, descriptors: descriptorList };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to fetch schemas";
-      setError(msg);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
+  const fetchDescriptors = useCallback(async (config: AepConnectionConfig): Promise<AepDescriptor[]> => {
+    const headers = proxyHeaders(config);
+    const [tenant, global_] = await Promise.all([
+      paginateSchemaRegistry<AepDescriptor>({
+        url: "/api/aep/schemaregistry/tenant/descriptors?limit=300",
+        headers,
+      }).catch((err: Error) => {
+        console.warn(`[Descriptors] Fetch failed: ${err.message}`);
+        return [] as AepDescriptor[];
+      }),
+      paginateSchemaRegistry<AepDescriptor>({
+        url: "/api/aep/schemaregistry/global/descriptors?limit=300",
+        headers,
+      }).catch(() => [] as AepDescriptor[]),
+    ]);
+    return dedupeDescriptorsById([...tenant, ...global_]);
   }, []);
 
-  const fetchMissing = useCallback(
-    async (
-      missingRefs: string[],
-      config: AepConnectionConfig
-    ): Promise<AepSchema[]> => {
-      if (missingRefs.length === 0) return [];
+  // Fetches specific schemas by their $id or meta:altId. Searches both tenant
+  // and global registries in parallel for each ID, taking the first hit.
+  const fetchSchemasByIds = useCallback(
+    async (schemaIds: string[], config: AepConnectionConfig): Promise<AepSchema[]> => {
+      if (schemaIds.length === 0) return [];
 
       const headers = proxyHeaders(config);
-      const fetched: AepSchema[] = [];
+      const requestHeaders = { ...headers, Accept: "application/vnd.adobe.xed+json" };
 
-      for (let i = 0; i < missingRefs.length; i += 5) {
-        const batch = missingRefs.slice(i, i + 5);
-        const results = await Promise.allSettled(
-          batch.map(async (ref) => {
-            const filterValue = ref.startsWith(NS_PREFIX)
-              ? ref
-              : NS_PREFIX + ref.slice(1); // convert altId → $id URI
-            const qs = new URLSearchParams({
-              "property": `$id==${filterValue}`,
-              "limit": "1",
-            });
-            const tenantUrl = `/api/aep/schemaregistry/tenant/schemas?${qs.toString()}`;
-            const globalUrl = `/api/aep/schemaregistry/global/schemas?${qs.toString()}`;
-            const requestHeaders = {
-              ...headers,
-              Accept: "application/vnd.adobe.xed+json",
-            };
-            const candidateResponses = await Promise.allSettled([
-              fetch(tenantUrl, { headers: requestHeaders }),
-              fetch(globalUrl, { headers: requestHeaders }),
-            ]);
+      const results = await Promise.allSettled(
+        schemaIds.map(async (id) => {
+          const filterValue = id.startsWith(NS_PREFIX) ? id : NS_PREFIX + id.slice(1);
+          const qs = new URLSearchParams({ property: `$id==${filterValue}`, limit: "1" });
+          const tenantUrl = `/api/aep/schemaregistry/tenant/schemas?${qs.toString()}`;
+          const globalUrl = `/api/aep/schemaregistry/global/schemas?${qs.toString()}`;
 
-            for (let j = 0; j < candidateResponses.length; j++) {
-              const candidate = candidateResponses[j];
-              if (candidate.status !== "fulfilled" || !candidate.value.ok) continue;
-              const data = await candidate.value.json();
-              const results: AepSchema[] = data.results ?? [];
-              if (results.length > 0) return results[0];
-            }
-            return null;
-          })
-        );
+          const [tenantRes, globalRes] = await Promise.allSettled([
+            fetch(tenantUrl, { headers: requestHeaders }),
+            fetch(globalUrl, { headers: requestHeaders }),
+          ]);
 
-        results.forEach((r) => {
-          if (r.status === "fulfilled" && r.value) {
-            fetched.push(r.value);
+          for (const candidate of [tenantRes, globalRes]) {
+            if (candidate.status !== "fulfilled" || !candidate.value.ok) continue;
+            const data = await candidate.value.json();
+            const schemas: AepSchema[] = data.results ?? [];
+            if (schemas.length > 0) return schemas[0];
           }
-        });
-      }
+          return null;
+        })
+      );
 
-      return fetched;
+      const fetched = results
+        .filter((r): r is PromiseFulfilledResult<AepSchema> => r.status === "fulfilled" && r.value !== null)
+        .map((r) => r.value);
+
+      return dedupeSchemasById(fetched);
     },
     []
   );
 
-  return { schemas, descriptors, loading, error, fetchSchemas: fetch_, fetchMissingSchemas: fetchMissing };
+  return { fetchDescriptors, fetchSchemasByIds };
 }

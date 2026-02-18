@@ -18,6 +18,7 @@ import { SchemaNode } from "@/components/nodes/schema-node";
 import { FieldGroupNode } from "@/components/nodes/field-group-node";
 import { FlowNode } from "@/components/nodes/flow-node";
 import { SummaryNode } from "@/components/nodes/summary-node";
+import { IdentityNode } from "@/components/nodes/identity-node";
 import { RelationshipEdge } from "@/components/edges/relationship-edge";
 import { ControlsPanel } from "./controls-panel";
 import { useCanvasStore } from "@/store/canvas-store";
@@ -28,6 +29,7 @@ const nodeTypes: NodeTypes = {
   fieldGroupNode: FieldGroupNode,
   flowNode: FlowNode,
   summaryNode: SummaryNode,
+  identityNode: IdentityNode,
 };
 
 const edgeTypes: EdgeTypes = {

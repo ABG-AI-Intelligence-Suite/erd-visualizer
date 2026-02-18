@@ -59,6 +59,7 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
     showSystem: true,
     showCustom: true,
     connectedFlowsOnly: true,
+    identityLinks: true,
   },
   toggleFilter: (type) =>
     set((state) => ({
