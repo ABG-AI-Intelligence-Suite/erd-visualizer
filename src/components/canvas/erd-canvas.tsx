@@ -36,6 +36,7 @@ const edgeTypes: EdgeTypes = {
 
 const proOptions = { hideAttribution: true };
 const fitViewOptions = { padding: 0.2 };
+const MIN_ZOOM = 0.25;
 
 interface ErdCanvasProps {
   nodes: Node[];
@@ -57,7 +58,7 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
     setEdges(externalEdges);
     if (externalNodes.length === 0) return;
     const timer = setTimeout(() => {
-      fitView({ duration: 300, padding: 0.2, maxZoom: 1 });
+      fitView({ duration: 300, padding: 0.2, minZoom: MIN_ZOOM, maxZoom: 1 });
     }, 50);
     return () => clearTimeout(timer);
   }, [externalNodes, externalEdges, setNodes, setEdges, fitView]);
@@ -81,7 +82,7 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitViewOptions={fitViewOptions}
-        minZoom={0.02}
+        minZoom={MIN_ZOOM}
         maxZoom={3}
         elevateEdgesOnSelect={false}
         nodesConnectable={false}

@@ -91,30 +91,6 @@ export function FilterControls({ filters, onToggle, collapsed, onToggleCollapse 
             Connected Flows Only
           </button>
         )}
-
-        {/* System toggle */}
-        <button
-          onClick={() => onToggle("showSystem")}
-          className={`text-xs px-2 py-1 rounded border transition-all ${
-            filters.showSystem
-              ? "border-gray-300 bg-white text-gray-700"
-              : "border-gray-200 bg-gray-100 text-gray-400 line-through"
-          }`}
-        >
-          System
-        </button>
-
-        {/* Custom toggle */}
-        <button
-          onClick={() => onToggle("showCustom")}
-          className={`text-xs px-2 py-1 rounded border transition-all ${
-            filters.showCustom
-              ? "border-gray-300 bg-white text-gray-700"
-              : "border-gray-200 bg-gray-100 text-gray-400 line-through"
-          }`}
-        >
-          Custom
-        </button>
       </div>
     </div>
   );
