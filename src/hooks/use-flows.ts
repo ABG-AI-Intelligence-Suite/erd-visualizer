@@ -25,7 +25,7 @@ export function useFlows() {
 
       const [flowList, connectionList, targetConnectionList] = await Promise.all([
         paginateFlowService<AepFlow>({
-          url: "/api/aep/flowservice/flows?limit=200",
+          url: "/api/aep/flowservice/flows?limit=200&property=state%3D%3Denabled",
           headers,
         }),
         paginateFlowService<AepConnection>({
@@ -78,29 +78,6 @@ export function useFlows() {
     []
   );
 
-  const fetchFlowDetails = useCallback(
-    async (
-      flowIds: string[],
-      config: AepConnectionConfig
-    ): Promise<AepFlow[]> => {
-      if (flowIds.length === 0) return [];
-
-      const headers = proxyHeaders(config);
-      const results = await Promise.allSettled(
-        flowIds.map(async (flowId) => {
-          const res = await fetch(`/api/aep/flowservice/flows/${flowId}`, { headers });
-          if (!res.ok) return null;
-          return (await res.json()) as AepFlow;
-        })
-      );
-
-      return results
-        .filter((r): r is PromiseFulfilledResult<AepFlow> => r.status === "fulfilled" && r.value !== null)
-        .map((r) => r.value);
-    },
-    []
-  );
-
   return {
     flows,
     connections,
@@ -108,6 +85,5 @@ export function useFlows() {
     error,
     fetchFlows: fetch_,
     fetchMissingConnections,
-    fetchFlowDetails,
   };
 }

@@ -54,7 +54,7 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
     datasets: true,
     schemas: true,
     fieldGroups: true,
-    flows: true,
+    flows: false,
     profileOnly: false,
     showSystem: true,
     showCustom: true,

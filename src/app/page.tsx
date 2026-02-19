@@ -165,6 +165,12 @@ function LoadingOverlay({ loading, progress }: { loading: boolean; progress: Pro
               >
                 {step.label}
               </span>
+              {step.status === "active" && step.count != null && step.total != null && (
+                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-indigo-500">
+                  {step.count.toLocaleString()} / {step.total.toLocaleString()}
+                  {step.unit ? ` ${step.unit}` : ""}
+                </span>
+              )}
               {step.status === "done" && step.count != null && step.count > 0 && (
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">
                   {step.count.toLocaleString()}
@@ -299,7 +305,6 @@ const CanvasArea = memo(function CanvasArea({
 
 const ToolbarArea = memo(function ToolbarArea({
   onConnect,
-  onLoadCache,
   nodes,
   focusSchemaShown,
   focusSchemaTotal,
@@ -309,7 +314,6 @@ const ToolbarArea = memo(function ToolbarArea({
   focusPageSizeNodes,
 }: {
   onConnect: (config: AepConnectionConfig) => void;
-  onLoadCache: () => void | Promise<void>;
   nodes: Node[];
   focusSchemaShown: number;
   focusSchemaTotal: number;
@@ -321,7 +325,6 @@ const ToolbarArea = memo(function ToolbarArea({
   return (
     <Toolbar
       onConnect={onConnect}
-      onLoadCache={onLoadCache}
       nodes={nodes}
       focusSchemaShown={focusSchemaShown}
       focusSchemaTotal={focusSchemaTotal}
@@ -335,10 +338,8 @@ const ToolbarArea = memo(function ToolbarArea({
 
 function FlowContent({
   onConnect,
-  onLoadCache,
 }: {
   onConnect: (config: AepConnectionConfig) => void;
-  onLoadCache: () => void | Promise<void>;
 }) {
   const {
     nodes,
@@ -366,7 +367,6 @@ function FlowContent({
     <>
       <ToolbarArea
         onConnect={onConnect}
-        onLoadCache={onLoadCache}
         nodes={nodes}
         focusSchemaShown={focusSchemaShown}
         focusSchemaTotal={focusSchemaTotal}
@@ -385,7 +385,7 @@ export default function Home() {
   const setIsLoading = useCanvasStore((s) => s.setIsLoading);
   const setError = useCanvasStore((s) => s.setError);
 
-  const { fetchAll, loading, error: fetchError, progress, loadMockData, restoreCachedGraph } = useAepData();
+  const { fetchAll, loading, error: fetchError, progress, loadMockData } = useAepData();
 
   const handleConnect = useCallback(
     async (config: AepConnectionConfig) => {
@@ -407,19 +407,10 @@ export default function Home() {
     loadMockData(getMockTransformInput());
   }, [loadMockData]);
 
-  const handleLoadCache = useCallback(async () => {
-    const cached = await restoreCachedGraph();
-    if (!cached) {
-      setError("No cached graph found on this browser.");
-      return;
-    }
-    setError(null);
-  }, [restoreCachedGraph, setError]);
-
   return (
     <div className="h-screen flex flex-col">
       <ReactFlowProvider>
-        <FlowContent onConnect={handleConnect} onLoadCache={handleLoadCache} />
+        <FlowContent onConnect={handleConnect} />
       </ReactFlowProvider>
       <EmptyState onLoadSample={handleLoadSample} />
       <LoadingOverlay loading={loading} progress={progress} />

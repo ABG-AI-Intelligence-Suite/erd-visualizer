@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyNodeChanges,
   ReactFlow,
@@ -38,7 +38,7 @@ const edgeTypes: EdgeTypes = {
 
 const proOptions = { hideAttribution: true };
 const fitViewOptions = { padding: 0.2 };
-const MIN_ZOOM = 0.25;
+const MIN_ZOOM = 0.5;
 
 interface ErdCanvasProps {
   nodes: Node[];
@@ -50,7 +50,6 @@ function buildChildMap(edges: Edge[]): Map<string, string[]> {
   for (let i = 0; i < edges.length; i++) {
     const edge = edges[i];
     const relType = (edge.data as { relationshipType?: string } | undefined)?.relationshipType;
-    // Only make schema -> field group relationships collapsible via node click.
     if (relType !== "schema-fieldgroup") continue;
     const list = children.get(edge.source);
     if (list) list.push(edge.target);
@@ -62,7 +61,6 @@ function buildChildMap(edges: Edge[]): Map<string, string[]> {
 function initializeCanvasNodes(
   sourceNodes: Node[],
   sourceEdges: Edge[],
-  collapseFieldGroupsByDefault: boolean
 ): Node[] {
   const childMap = buildChildMap(sourceEdges);
   const initialized: Node[] = [];
@@ -70,12 +68,7 @@ function initializeCanvasNodes(
     const node = sourceNodes[i];
     const children = childMap.get(node.id) ?? [];
     const nextData = { ...(node.data as Record<string, unknown>), children };
-    const shouldHide = collapseFieldGroupsByDefault && node.type === "fieldGroupNode";
-    initialized.push({
-      ...node,
-      data: nextData,
-      hidden: shouldHide,
-    });
+    initialized.push({ ...node, data: nextData });
   }
   return initialized;
 }
@@ -83,14 +76,39 @@ function initializeCanvasNodes(
 export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCanvasProps) {
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
-  const { setCenter } = useReactFlow();
+  const setFocusNode = useCanvasStore((s) => s.setFocusNode);
+  const viewMode = useCanvasStore((s) => s.viewMode);
+  const { setCenter, fitView } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>(
-    initializeCanvasNodes(externalNodes, externalEdges, !focusNodeId)
+    initializeCanvasNodes(externalNodes, externalEdges)
   );
 
+  const prevFocusNodeIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    setNodes(initializeCanvasNodes(externalNodes, externalEdges, !focusNodeId));
-  }, [externalNodes, externalEdges, focusNodeId]);
+    setNodes(initializeCanvasNodes(externalNodes, externalEdges));
+
+    if (focusNodeId) {
+      prevFocusNodeIdRef.current = focusNodeId;
+      return;
+    }
+
+    if (prevFocusNodeIdRef.current) {
+      const lastNode = externalNodes.find((n) => n.id === prevFocusNodeIdRef.current);
+      prevFocusNodeIdRef.current = null;
+      if (lastNode) {
+        const id = requestAnimationFrame(() =>
+          setCenter(lastNode.position.x + 132, lastNode.position.y + 40, { zoom: 0.85, duration: 300 })
+        );
+        return () => cancelAnimationFrame(id);
+      }
+    }
+
+    if (externalNodes.length > 0) {
+      const id = requestAnimationFrame(() => fitView({ padding: 0.15, duration: 400 }));
+      return () => cancelAnimationFrame(id);
+    }
+  }, [externalNodes, externalEdges, focusNodeId, fitView, setCenter]);
 
   useEffect(() => {
     if (!focusNodeId) return;
@@ -98,7 +116,6 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
     if (!focused) return;
     const x = focused.position.x + 132;
     const y = focused.position.y + 40;
-    // Zooming in during focus mode reduces on-screen node count and DOM work.
     setCenter(x, y, { zoom: 1.15, duration: 250 });
   }, [focusNodeId, externalNodes, setCenter]);
 
@@ -132,7 +149,18 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
     [setSelectedNode]
   );
 
-  const onPaneClick = useCallback(() => setSelectedNode(null), [setSelectedNode]);
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+    if (viewMode === "schema" && focusNodeId) setFocusNode(null);
+  }, [setSelectedNode, setFocusNode, viewMode, focusNodeId]);
+
+  const onNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      if (viewMode !== "schema") return;
+      setFocusNode(focusNodeId === node.id ? null : node.id);
+    },
+    [viewMode, focusNodeId, setFocusNode],
+  );
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((currentNodes) => applyNodeChanges(changes, currentNodes));
@@ -162,6 +190,7 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
         edges={edges}
         onNodesChange={onNodesChange}
         onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

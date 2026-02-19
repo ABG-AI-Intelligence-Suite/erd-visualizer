@@ -206,6 +206,7 @@ export interface ProgressStep {
   label: string;
   status: StepStatus;
   count?: number;
+  total?: number;
   unit?: string;
 }
 

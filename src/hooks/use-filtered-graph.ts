@@ -10,8 +10,8 @@ const TYPE_MAP: Record<string, EntityFilterKey> = {
   flowNode: "flows",
 };
 
-const COL_WIDTH = 320;
-const ROW_HEIGHT = 280;
+const COL_WIDTH = 480;
+const ROW_HEIGHT = 340;
 const COL_MAP: Record<string, number> = {
   flowNode: 0,
   datasetNode: 1,
@@ -32,9 +32,9 @@ const NODE_TYPE_BY_FILTER: Record<EntityFilterKey, string> = {
   flows: "flowNode",
 };
 const FILTER_TYPES: EntityFilterKey[] = ["datasets", "schemas", "fieldGroups", "flows"];
-const SCHEMA_LEVEL_GAP = 300;
-const SCHEMA_NODE_GAP = 380;
-const SCHEMA_COMPONENT_GAP = 300;
+const SCHEMA_LEVEL_GAP = 280;
+const SCHEMA_NODE_GAP = 300;
+const SCHEMA_COMPONENT_GAP = 120;
 const FOCUS_SCHEMA_PAGE_SIZE = 5;
 const FOCUS_NODE_PAGE_SIZE = 20;
 
@@ -155,7 +155,6 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
     const componentIds = components[c];
     const componentSet = new Set(componentIds);
 
-    // Identity hub nodes become natural roots due to high degree; prefer them explicitly.
     let rootId = componentIds[0];
     for (let i = 1; i < componentIds.length; i++) {
       const candidateId = componentIds[i];
@@ -241,7 +240,6 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
       levelIndexes.set(level, indexMap);
     }
 
-    // Top-down layout: levels → y axis, nodes within level → x axis, centered per level.
     const maxCols = Math.max(...orderedLevels.map((l) => (rows.get(l) ?? []).length));
 
     for (let i = 0; i < orderedLevels.length; i++) {
@@ -422,7 +420,6 @@ export function useFilteredGraph() {
           (e) => (e.data as RelationshipEdgeData | undefined)?.relationshipType !== "schema-identity"
         );
       }
-      // Always strip identity hub nodes from full view — they're schema-view-only.
       filteredNodes = filteredNodes.filter((n) => n.type !== "identityNode");
     }
 
@@ -535,41 +532,58 @@ export function useFilteredGraph() {
       }
       filteredNodes = limitedNodes;
 
-      const COL_GAP = deferredViewMode === "schema" ? SCHEMA_NODE_GAP : 360;
-      const ROW_GAP = deferredViewMode === "schema" ? SCHEMA_LEVEL_GAP : 180;
-      const columns = new Map<number, string[]>();
-      const putInColumn = (column: number, id: string) => {
-        const list = columns.get(column);
+      const isSchemaFocus = deferredViewMode === "schema";
+      const LEVEL_GAP = isSchemaFocus ? SCHEMA_LEVEL_GAP : 360;
+      const NODE_GAP  = isSchemaFocus ? SCHEMA_NODE_GAP  : 180;
+
+      const levels = new Map<number, string[]>();
+      const putInLevel = (level: number, id: string) => {
+        const list = levels.get(level);
         if (list) list.push(id);
-        else columns.set(column, [id]);
+        else levels.set(level, [id]);
       };
 
       for (let i = 0; i < filteredNodes.length; i++) {
         const id = filteredNodes[i].id;
         if (id === deferredFocusNodeId) {
-          putInColumn(0, id);
+          putInLevel(0, id);
           continue;
         }
         const outbound = outboundDistances.get(id);
-        const inbound = inboundDistances.get(id);
+        const inbound  = inboundDistances.get(id);
         if (outbound != null && inbound != null) {
-          putInColumn(outbound <= inbound ? outbound : -inbound, id);
+          putInLevel(outbound <= inbound ? outbound : -inbound, id);
         } else if (outbound != null) {
-          putInColumn(outbound, id);
+          putInLevel(outbound, id);
         } else if (inbound != null) {
-          putInColumn(-inbound, id);
+          putInLevel(-inbound, id);
         }
       }
 
       const posMap = new Map<string, { x: number; y: number }>();
-      columns.forEach((ids, column) => {
-        for (let i = 0; i < ids.length; i++) {
-          posMap.set(ids[i], {
-            x: column * COL_GAP,
-            y: (i - (ids.length - 1) / 2) * ROW_GAP,
-          });
-        }
-      });
+      if (isSchemaFocus) {
+        // Top-down: level index → y, siblings centered on x axis.
+        const maxSiblings = Math.max(...Array.from(levels.values()).map((l) => l.length));
+        levels.forEach((ids, level) => {
+          const centerOffset = ((maxSiblings - ids.length) / 2) * NODE_GAP;
+          for (let i = 0; i < ids.length; i++) {
+            posMap.set(ids[i], {
+              x: centerOffset + i * NODE_GAP,
+              y: level * LEVEL_GAP,
+            });
+          }
+        });
+      } else {
+        // Left-right: level index → x, siblings centered on y axis.
+        levels.forEach((ids, level) => {
+          for (let i = 0; i < ids.length; i++) {
+            posMap.set(ids[i], {
+              x: level * LEVEL_GAP,
+              y: (i - (ids.length - 1) / 2) * NODE_GAP,
+            });
+          }
+        });
+      }
 
       const withPos: Node[] = [];
       for (let i = 0; i < filteredNodes.length; i++) {

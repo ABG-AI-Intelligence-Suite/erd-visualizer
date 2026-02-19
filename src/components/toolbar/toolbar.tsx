@@ -9,7 +9,6 @@ import type { Node } from "@xyflow/react";
 
 interface ToolbarProps {
   onConnect: (config: AepConnectionConfig) => void;
-  onLoadCache: () => void | Promise<void>;
   nodes: Node[];
   focusSchemaShown: number;
   focusSchemaTotal: number;
@@ -21,7 +20,6 @@ interface ToolbarProps {
 
 export function Toolbar({
   onConnect,
-  onLoadCache,
   nodes,
   focusSchemaShown,
   focusSchemaTotal,
@@ -91,14 +89,6 @@ export function Toolbar({
                 </button>
               </div>
             )}
-            <button
-              onClick={() => {
-                void onLoadCache();
-              }}
-              className="inline-flex h-7 items-center justify-center rounded-md border border-slate-300 bg-white px-2.5 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-100"
-            >
-              Load Cache
-            </button>
           </div>
         </div>
 

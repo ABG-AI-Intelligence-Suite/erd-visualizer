@@ -234,12 +234,14 @@ function buildFlowNodes(
 
 function buildDatasetSchemaEdges(
   datasets: AepDataset[],
-  schemaIdLookup: Map<string, string>
+  schemaIdLookup: Map<string, string>,
+  pkMap: Map<string, string>
 ): Edge<RelationshipEdgeData>[] {
   const edges: Edge<RelationshipEdgeData>[] = [];
   datasets.forEach((ds) => {
     if (ds.schemaRef?.id) {
       const resolvedId = resolveSchemaId(ds.schemaRef.id, schemaIdLookup);
+      const pkField = pkMap.get(resolvedId) ?? pkMap.get(ds.schemaRef.id) ?? "$id";
       edges.push({
         id: `edge-ds-schema-${ds.id}`,
         source: `dataset-${ds.id}`,
@@ -249,9 +251,9 @@ function buildDatasetSchemaEdges(
           relationshipType: "dataset-schema",
           label: "uses schema",
           fkLabel: `FK: schemaRef.id`,
-          pkLabel: `PK: $id`,
+          pkLabel: `PK: ${pkField}`,
           sourceField: "schemaRef.id",
-          targetField: "$id",
+          targetField: pkField,
         },
       });
     }
@@ -266,8 +268,6 @@ function buildSchemaFieldGroupEdges(
 ): Edge<RelationshipEdgeData>[] {
   const edges: Edge<RelationshipEdgeData>[] = [];
   schemas.forEach((s) => {
-    // Collect candidate refs from both meta:extends and allOf.$ref so that
-    // schemas work regardless of which the registry populates in a list response.
     const refs = new Set<string>(s["meta:extends"] ?? []);
     s.allOf?.forEach((entry) => {
       if (entry.$ref) refs.add(entry.$ref);
@@ -295,11 +295,14 @@ function buildSchemaFieldGroupEdges(
 
 function buildSchemaRelationshipEdges(
   descriptors: AepDescriptor[],
-  schemaIdLookup: Map<string, string>
+  schemaIdLookup: Map<string, string>,
+  pkMap: Map<string, string>
 ): Edge<RelationshipEdgeData>[] {
   return getRelationshipDescriptors(descriptors).map((d) => {
     const sourceSchemaId = resolveSchemaId(d["xdm:sourceSchema"], schemaIdLookup);
     const destinationSchemaId = resolveSchemaId(d["xdm:destinationSchema"] ?? "", schemaIdLookup);
+    const fkField = d["xdm:sourceProperty"] ?? pkMap.get(sourceSchemaId) ?? "?";
+    const pkField = d["xdm:destinationProperty"] ?? pkMap.get(destinationSchemaId) ?? "?";
     return {
       id: `edge-schema-rel-${d["@id"]}`,
       source: `schema-${sourceSchemaId}`,
@@ -308,10 +311,10 @@ function buildSchemaRelationshipEdges(
       data: {
         relationshipType: "schema-schema" as const,
         label: "relationship",
-        fkLabel: `FK: ${d["xdm:sourceProperty"] ?? "?"}`,
-        pkLabel: `PK: ${d["xdm:destinationProperty"] ?? "?"}`,
-        sourceField: d["xdm:sourceProperty"],
-        targetField: d["xdm:destinationProperty"],
+        fkLabel: `FK: ${fkField}`,
+        pkLabel: `PK: ${pkField}`,
+        sourceField: fkField,
+        targetField: pkField,
       },
     };
   });
@@ -434,9 +437,9 @@ export function transformToGraph(input: TransformInput) {
   const nodeIds = new Set(nodes.map((n) => n.id));
 
   const allEdges: Edge[] = [
-    ...buildDatasetSchemaEdges(datasets, schemaIdLookup),
+    ...buildDatasetSchemaEdges(datasets, schemaIdLookup, pkMap),
     ...buildSchemaFieldGroupEdges(schemas, fieldGroupIds, fieldGroupIdLookup),
-    ...buildSchemaRelationshipEdges(descriptors, schemaIdLookup),
+    ...buildSchemaRelationshipEdges(descriptors, schemaIdLookup, pkMap),
     ...identityHubs.edges,
     ...buildFlowDatasetEdges(flows, connectionMap, datasetIds),
   ];

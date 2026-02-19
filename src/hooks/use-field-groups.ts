@@ -3,6 +3,17 @@ import type { AepConnectionConfig, AepFieldGroup } from "@/lib/types";
 
 const NS_PREFIX = "https://ns.adobe.com/";
 
+const GLOBAL_NS_SEGMENTS = ["xdm/", "experience/", "adobe/"];
+
+function classifyRef(ref: string): "global" | "tenant" {
+  const path = ref.startsWith(NS_PREFIX)
+    ? ref.slice(NS_PREFIX.length)
+    : ref.startsWith("_")
+    ? ref.slice(1)
+    : ref;
+  return GLOBAL_NS_SEGMENTS.some((seg) => path.startsWith(seg)) ? "global" : "tenant";
+}
+
 function proxyHeaders(config: AepConnectionConfig): Record<string, string> {
   return {
     "x-aep-token": config.token,
@@ -18,9 +29,25 @@ function dedupeFieldGroupsById(items: AepFieldGroup[]): AepFieldGroup[] {
   return Array.from(map.values());
 }
 
+async function fetchFieldGroupFromRegistry(
+  registry: "tenant" | "global",
+  filterValue: string,
+  headers: Record<string, string>,
+): Promise<AepFieldGroup | null> {
+  const qs = new URLSearchParams({ property: `$id==${filterValue}`, limit: "1" });
+  const url = `/api/aep/schemaregistry/${registry}/fieldgroups?${qs.toString()}`;
+  try {
+    const res = await fetch(url, { headers });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const fgs: AepFieldGroup[] = data.results ?? [];
+    return fgs[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function useFieldGroups() {
-  // Fetches field groups by their refs collected from schema meta:extends / allOf.$ref.
-  // Searches both tenant and global registries in parallel for each ref.
   const fetchFieldGroupsByRefs = useCallback(
     async (refs: string[], config: AepConnectionConfig): Promise<AepFieldGroup[]> => {
       if (refs.length === 0) return [];
@@ -31,22 +58,13 @@ export function useFieldGroups() {
       const results = await Promise.allSettled(
         refs.map(async (ref) => {
           const filterValue = ref.startsWith(NS_PREFIX) ? ref : NS_PREFIX + ref.slice(1);
-          const qs = new URLSearchParams({ property: `$id==${filterValue}`, limit: "1" });
-          const tenantUrl = `/api/aep/schemaregistry/tenant/fieldgroups?${qs.toString()}`;
-          const globalUrl = `/api/aep/schemaregistry/global/fieldgroups?${qs.toString()}`;
+          const primary = classifyRef(ref);
+          const fallback = primary === "global" ? "tenant" : "global";
 
-          const [tenantRes, globalRes] = await Promise.allSettled([
-            fetch(tenantUrl, { headers: requestHeaders }),
-            fetch(globalUrl, { headers: requestHeaders }),
-          ]);
+          const fg = await fetchFieldGroupFromRegistry(primary, filterValue, requestHeaders);
+          if (fg) return fg;
 
-          for (const candidate of [tenantRes, globalRes]) {
-            if (candidate.status !== "fulfilled" || !candidate.value.ok) continue;
-            const data = await candidate.value.json();
-            const fgs: AepFieldGroup[] = data.results ?? [];
-            if (fgs.length > 0) return fgs[0];
-          }
-          return null;
+          return fetchFieldGroupFromRegistry(fallback, filterValue, requestHeaders);
         })
       );
 
