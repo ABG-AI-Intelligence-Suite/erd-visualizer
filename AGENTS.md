@@ -79,7 +79,7 @@ Only these values are valid; they drive styling and filtering:
 ### Canvas Settings (`erd-canvas.tsx`)
 
 - `MIN_ZOOM = 0.5` — prevent zooming out too far; keeps nodes readable
-- Field group nodes are **not** hidden by default. They render in column 3 of the grid when `filters.fieldGroups` is true. Clicking a schema node collapses/expands its field group children (tracked via `data.children`).
+- Field group nodes render in column 3 of the grid when `filters.fieldGroups` is true. They are always visible — there is no click-to-collapse behavior.
 
 ---
 

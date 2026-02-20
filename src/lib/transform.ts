@@ -174,14 +174,40 @@ function buildSchemaNodes(
   });
 }
 
+function extractFieldGroupFields(fg: AepFieldGroup): ErdField[] {
+  // Primary: top-level properties (present in xed-full+json responses)
+  if (fg.properties) {
+    const fields = extractFields(fg.properties as Record<string, unknown>);
+    if (fields.length > 0) return fields;
+  }
+
+  // Fallback: properties nested inside definitions (concise xed+json format
+  // stores properties in definitions with internal $ref in allOf)
+  if (fg.definitions) {
+    const fields: ErdField[] = [];
+    for (const def of Object.values(fg.definitions)) {
+      if (def && typeof def === "object" && "properties" in def) {
+        fields.push(
+          ...extractFields(
+            (def as Record<string, unknown>).properties as Record<string, unknown>
+          )
+        );
+      }
+    }
+    if (fields.length > 0) return fields;
+  }
+
+  return [];
+}
+
 function buildFieldGroupNodes(
   fieldGroups: AepFieldGroup[]
 ): Node<FieldGroupNodeData>[] {
   return fieldGroups.map((fg, i) => {
-    const propKeys = fg.properties ? Object.keys(fg.properties) : [];
-    const fields: ErdField[] = fg.properties
-      ? extractFields(fg.properties as Record<string, unknown>)
-      : [];
+    const fields = extractFieldGroupFields(fg);
+    const propKeys = fg.properties
+      ? Object.keys(fg.properties).slice(0, 5)
+      : fields.slice(0, 5).map((f) => f.name);
     return {
       id: `fieldgroup-${fg.$id}`,
       type: "fieldGroupNode",
@@ -192,7 +218,7 @@ function buildFieldGroupNodes(
         fieldGroupId: fg.$id,
         description: fg.description,
         fieldCount: fields.length,
-        keyFields: propKeys.slice(0, 5),
+        keyFields: propKeys,
         isSystem: isSystemId(fg.$id),
         fields,
       },

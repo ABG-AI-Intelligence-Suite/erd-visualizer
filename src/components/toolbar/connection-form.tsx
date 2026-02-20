@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AepConnectionConfig } from "@/lib/types";
 
 interface ConnectionFormProps {
@@ -21,6 +21,24 @@ export function ConnectionForm({
   const [sandbox, setSandbox] = useState("prod");
   const [apiKey, setApiKey] = useState("");
   const [expanded, setExpanded] = useState(!isConnected);
+
+  useEffect(() => {
+    if (isConnected) return;
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((cfg: AepConnectionConfig) => {
+        if (cfg.token) setToken(cfg.token);
+        if (cfg.orgId) setOrgId(cfg.orgId);
+        if (cfg.sandbox) setSandbox(cfg.sandbox);
+        if (cfg.apiKey) setApiKey(cfg.apiKey);
+        if (cfg.token && cfg.orgId && cfg.apiKey) {
+          onConnect(cfg);
+          setExpanded(false);
+        }
+      })
+      .catch(() => {
+      });
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -37,13 +37,42 @@ function schemaIdsFromDescriptors(descriptors: AepDescriptor[]): Set<string> {
   return ids;
 }
 
-function collectFieldGroupRefs(schemas: { "meta:extends"?: string[]; allOf?: Array<{ $ref: string }> }[]): string[] {
+// Refs that appear in meta:extends but are not field groups (behaviors, base classes).
+const XDM_NON_FIELDGROUP_PREFIXES = [
+  "https://ns.adobe.com/xdm/data/",
+  "https://ns.adobe.com/xdm/common/",
+];
+
+function collectFieldGroupRefs(
+  schemas: { $id?: string; "meta:class"?: string; "meta:extends"?: string[]; allOf?: Array<{ $ref: string }> }[]
+): string[] {
   const refs = new Set<string>();
   for (const schema of schemas) {
-    schema["meta:extends"]?.forEach((ref) => refs.add(ref));
-    schema.allOf?.forEach((entry) => {
-      if (entry.$ref) refs.add(entry.$ref);
-    });
+    const classRef = schema["meta:class"];
+    const selfRef = schema.$id;
+
+    if (schema.allOf && schema.allOf.length > 0) {
+      // allOf is the direct, non-recursive composition: [class, ...fieldGroups].
+      // Excluding the class ref and known non-field-group prefixes leaves only the field groups.
+      for (const entry of schema.allOf) {
+        if (
+          entry.$ref &&
+          entry.$ref !== classRef &&
+          entry.$ref !== selfRef &&
+          !XDM_NON_FIELDGROUP_PREFIXES.some((p) => entry.$ref.startsWith(p))
+        ) {
+          refs.add(entry.$ref);
+        }
+      }
+    } else if (schema["meta:extends"]) {
+      // Fallback: meta:extends is the fully-flattened ancestor chain.
+      // Filter out the class, self-ref, and known non-field-group XDM base refs.
+      for (const ref of schema["meta:extends"]) {
+        if (ref === classRef || ref === selfRef) continue;
+        if (XDM_NON_FIELDGROUP_PREFIXES.some((p) => ref.startsWith(p))) continue;
+        refs.add(ref);
+      }
+    }
   }
   return Array.from(refs);
 }

@@ -31,17 +31,19 @@ function dedupeFieldGroupsById(items: AepFieldGroup[]): AepFieldGroup[] {
 
 async function fetchFieldGroupFromRegistry(
   registry: "tenant" | "global",
-  filterValue: string,
+  id: string,
   headers: Record<string, string>,
 ): Promise<AepFieldGroup | null> {
-  const qs = new URLSearchParams({ property: `$id==${filterValue}`, limit: "1" });
-  const url = `/api/aep/schemaregistry/${registry}/fieldgroups?${qs.toString()}`;
+  // Use _resourceId for a direct fetch — same pattern as schema fetching,
+  // more reliable than the property=$id== list filter.
+  // _accept=full resolves internal $ref so properties appear at the top level.
+  const url = `/api/aep/schemaregistry/${registry}/fieldgroups?_resourceId=${encodeURIComponent(id)}&_accept=full`;
   try {
     const res = await fetch(url, { headers });
     if (!res.ok) return null;
     const data = await res.json();
-    const fgs: AepFieldGroup[] = data.results ?? [];
-    return fgs[0] ?? null;
+    if (data?.$id) return data as AepFieldGroup;
+    return null;
   } catch {
     return null;
   }
@@ -53,7 +55,6 @@ export function useFieldGroups() {
       if (refs.length === 0) return [];
 
       const headers = proxyHeaders(config);
-      const requestHeaders = { ...headers, Accept: "application/vnd.adobe.xed+json" };
 
       const results = await Promise.allSettled(
         refs.map(async (ref) => {
@@ -61,10 +62,10 @@ export function useFieldGroups() {
           const primary = classifyRef(ref);
           const fallback = primary === "global" ? "tenant" : "global";
 
-          const fg = await fetchFieldGroupFromRegistry(primary, filterValue, requestHeaders);
+          const fg = await fetchFieldGroupFromRegistry(primary, filterValue, headers);
           if (fg) return fg;
 
-          return fetchFieldGroupFromRegistry(fallback, filterValue, requestHeaders);
+          return fetchFieldGroupFromRegistry(fallback, filterValue, headers);
         })
       );
 

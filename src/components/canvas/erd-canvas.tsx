@@ -45,48 +45,18 @@ interface ErdCanvasProps {
   edges: Edge[];
 }
 
-function buildChildMap(edges: Edge[]): Map<string, string[]> {
-  const children = new Map<string, string[]>();
-  for (let i = 0; i < edges.length; i++) {
-    const edge = edges[i];
-    const relType = (edge.data as { relationshipType?: string } | undefined)?.relationshipType;
-    if (relType !== "schema-fieldgroup") continue;
-    const list = children.get(edge.source);
-    if (list) list.push(edge.target);
-    else children.set(edge.source, [edge.target]);
-  }
-  return children;
-}
-
-function initializeCanvasNodes(
-  sourceNodes: Node[],
-  sourceEdges: Edge[],
-): Node[] {
-  const childMap = buildChildMap(sourceEdges);
-  const initialized: Node[] = [];
-  for (let i = 0; i < sourceNodes.length; i++) {
-    const node = sourceNodes[i];
-    const children = childMap.get(node.id) ?? [];
-    const nextData = { ...(node.data as Record<string, unknown>), children };
-    initialized.push({ ...node, data: nextData });
-  }
-  return initialized;
-}
-
 export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCanvasProps) {
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
   const viewMode = useCanvasStore((s) => s.viewMode);
   const { setCenter, fitView } = useReactFlow();
-  const [nodes, setNodes] = useState<Node[]>(
-    initializeCanvasNodes(externalNodes, externalEdges)
-  );
+  const [nodes, setNodes] = useState<Node[]>(externalNodes);
 
   const prevFocusNodeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setNodes(initializeCanvasNodes(externalNodes, externalEdges));
+    setNodes(externalNodes);
 
     if (focusNodeId) {
       prevFocusNodeIdRef.current = focusNodeId;
@@ -108,7 +78,7 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
       const id = requestAnimationFrame(() => fitView({ padding: 0.15, duration: 400 }));
       return () => cancelAnimationFrame(id);
     }
-  }, [externalNodes, externalEdges, focusNodeId, fitView, setCenter]);
+  }, [externalNodes, focusNodeId, fitView, setCenter]);
 
   useEffect(() => {
     if (!focusNodeId) return;
@@ -122,29 +92,6 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       setSelectedNode(node.id);
-      const children = (node.data as { children?: unknown }).children;
-      if (!Array.isArray(children) || children.length === 0) return;
-
-      const childIdSet = new Set<string>();
-      for (let i = 0; i < children.length; i++) {
-        if (typeof children[i] === "string") childIdSet.add(children[i]);
-      }
-      if (childIdSet.size === 0) return;
-
-      setNodes((currentNodes) => {
-        let anyVisibleChild = false;
-        for (let i = 0; i < currentNodes.length; i++) {
-          const candidate = currentNodes[i];
-          if (childIdSet.has(candidate.id) && !candidate.hidden) {
-            anyVisibleChild = true;
-            break;
-          }
-        }
-        const nextHidden = anyVisibleChild;
-        return currentNodes.map((candidate) =>
-          childIdSet.has(candidate.id) ? { ...candidate, hidden: nextHidden } : candidate
-        );
-      });
     },
     [setSelectedNode]
   );
