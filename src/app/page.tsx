@@ -8,6 +8,7 @@ import { ErdCanvas } from "@/components/canvas/erd-canvas";
 import { DetailPanel } from "@/components/sidebar/detail-panel";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useAepData } from "@/hooks/use-aep-data";
+import { useEnvAutoConnect } from "@/hooks/use-env-auto-connect";
 import { useFilteredGraph } from "@/hooks/use-filtered-graph";
 import { getMockTransformInput } from "@/lib/mock-data";
 import type { AepConnectionConfig, ProgressStep } from "@/lib/types";
@@ -312,6 +313,8 @@ const ToolbarArea = memo(function ToolbarArea({
   onLoadMoreFocusResults,
   focusPageSizeSchemas,
   focusPageSizeNodes,
+  hasEnvCredentials,
+  envConfig,
 }: {
   onConnect: (config: AepConnectionConfig) => void;
   nodes: Node[];
@@ -321,6 +324,8 @@ const ToolbarArea = memo(function ToolbarArea({
   onLoadMoreFocusResults: () => void;
   focusPageSizeSchemas: number;
   focusPageSizeNodes: number;
+  hasEnvCredentials: boolean;
+  envConfig: AepConnectionConfig | null;
 }) {
   return (
     <Toolbar
@@ -332,14 +337,20 @@ const ToolbarArea = memo(function ToolbarArea({
       onLoadMoreFocusResults={onLoadMoreFocusResults}
       focusPageSizeSchemas={focusPageSizeSchemas}
       focusPageSizeNodes={focusPageSizeNodes}
+      hasEnvCredentials={hasEnvCredentials}
+      envConfig={envConfig}
     />
   );
 });
 
 function FlowContent({
   onConnect,
+  hasEnvCredentials,
+  envConfig,
 }: {
   onConnect: (config: AepConnectionConfig) => void;
+  hasEnvCredentials: boolean;
+  envConfig: AepConnectionConfig | null;
 }) {
   const {
     nodes,
@@ -374,6 +385,8 @@ function FlowContent({
         onLoadMoreFocusResults={loadMoreFocusResults}
         focusPageSizeSchemas={focusPageSizeSchemas}
         focusPageSizeNodes={focusPageSizeNodes}
+        hasEnvCredentials={hasEnvCredentials}
+        envConfig={envConfig}
       />
       <CanvasArea nodes={nodes} edges={edges} selectedNode={selectedNode} />
     </>
@@ -386,6 +399,7 @@ export default function Home() {
   const setError = useCanvasStore((s) => s.setError);
 
   const { fetchAll, loading, error: fetchError, progress, loadMockData } = useAepData();
+  const { envConfig, hasCredentials } = useEnvAutoConnect();
 
   const handleConnect = useCallback(
     async (config: AepConnectionConfig) => {
@@ -410,7 +424,11 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col">
       <ReactFlowProvider>
-        <FlowContent onConnect={handleConnect} />
+        <FlowContent
+          onConnect={handleConnect}
+          hasEnvCredentials={hasCredentials}
+          envConfig={envConfig}
+        />
       </ReactFlowProvider>
       <EmptyState onLoadSample={handleLoadSample} />
       <LoadingOverlay loading={loading} progress={progress} />

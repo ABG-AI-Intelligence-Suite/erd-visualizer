@@ -390,7 +390,7 @@ export function useFilteredGraph() {
     let focusSchemaTotal = 0;
     let focusHasMore = false;
     let candidateEdges = rawEdges;
-    let filteredNodes = isFocusActive ? rawNodes : filterByType(rawNodes, deferredFilters);
+    let filteredNodes = filterByType(rawNodes, deferredFilters);
 
     if (deferredViewMode === "schema") {
       const schemaViewNodes: Node[] = [];

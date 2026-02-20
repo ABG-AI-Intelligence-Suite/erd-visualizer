@@ -16,6 +16,8 @@ interface ToolbarProps {
   onLoadMoreFocusResults: () => void;
   focusPageSizeSchemas: number;
   focusPageSizeNodes: number;
+  hasEnvCredentials: boolean;
+  envConfig: AepConnectionConfig | null;
 }
 
 export function Toolbar({
@@ -27,6 +29,8 @@ export function Toolbar({
   onLoadMoreFocusResults,
   focusPageSizeSchemas,
   focusPageSizeNodes,
+  hasEnvCredentials,
+  envConfig,
 }: ToolbarProps) {
   const connection = useCanvasStore((s) => s.connection);
   const isConnected = Boolean(connection);
@@ -97,6 +101,20 @@ export function Toolbar({
             <div className="min-w-[72px] pb-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
               Connection
             </div>
+            {hasEnvCredentials && !isConnected && envConfig && (
+              <button
+                type="button"
+                onClick={() => onConnect(envConfig)}
+                disabled={isLoading}
+                className="group relative inline-flex items-center gap-2 overflow-hidden rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-[11px] font-semibold text-white shadow-lg shadow-violet-200 transition-all hover:from-violet-500 hover:to-indigo-500 hover:shadow-violet-300/60 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 opacity-0 transition-opacity group-hover:opacity-100" />
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+                <span>.env detected — Connect to Experience Platform</span>
+              </button>
+            )}
             <ConnectionForm
               onConnect={onConnect}
               isConnected={isConnected}

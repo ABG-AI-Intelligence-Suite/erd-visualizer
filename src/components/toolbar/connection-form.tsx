@@ -31,14 +31,9 @@ export function ConnectionForm({
         if (cfg.orgId) setOrgId(cfg.orgId);
         if (cfg.sandbox) setSandbox(cfg.sandbox);
         if (cfg.apiKey) setApiKey(cfg.apiKey);
-        if (cfg.token && cfg.orgId && cfg.apiKey) {
-          onConnect(cfg);
-          setExpanded(false);
-        }
       })
-      .catch(() => {
-      });
-  }, []);
+      .catch(() => {});
+  }, [isConnected]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
