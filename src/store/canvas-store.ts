@@ -43,6 +43,25 @@ interface CanvasStore {
   rawNodes: Node[];
   rawEdges: Edge[];
   setGraph: (nodes: Node[], edges: Edge[]) => void;
+
+  // UI panels
+  detailPanelPinned: boolean;
+  toggleDetailPanelPinned: () => void;
+
+  hoveredNodeId: string | null;
+  setHoveredNode: (id: string | null) => void;
+
+  commandPaletteOpen: boolean;
+  setCommandPaletteOpen: (open: boolean) => void;
+
+  connectionDialogOpen: boolean;
+  setConnectionDialogOpen: (open: boolean) => void;
+
+  exportDialogOpen: boolean;
+  setExportDialogOpen: (open: boolean) => void;
+
+  shortcutsDialogOpen: boolean;
+  setShortcutsDialogOpen: (open: boolean) => void;
 }
 
 export const useCanvasStore = create<CanvasStore>((set) => ({
@@ -115,4 +134,23 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   rawNodes: [],
   rawEdges: [],
   setGraph: (nodes, edges) => set({ rawNodes: nodes, rawEdges: edges }),
+
+  detailPanelPinned: false,
+  toggleDetailPanelPinned: () =>
+    set((state) => ({ detailPanelPinned: !state.detailPanelPinned })),
+
+  hoveredNodeId: null,
+  setHoveredNode: (id) => set({ hoveredNodeId: id }),
+
+  commandPaletteOpen: false,
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+
+  connectionDialogOpen: false,
+  setConnectionDialogOpen: (open) => set({ connectionDialogOpen: open }),
+
+  exportDialogOpen: false,
+  setExportDialogOpen: (open) => set({ exportDialogOpen: open }),
+
+  shortcutsDialogOpen: false,
+  setShortcutsDialogOpen: (open) => set({ shortcutsDialogOpen: open }),
 }));

@@ -6,23 +6,20 @@ import {
   getSmoothStepPath,
   type EdgeProps,
 } from "@xyflow/react";
+import { useCanvasStore } from "@/store/canvas-store";
 import type { RelationshipEdgeData } from "@/lib/types";
 
 const STYLE_MAP: Record<string, { strokeDasharray: string; stroke: string }> = {
   "dataset-schema": { strokeDasharray: "0", stroke: "#6366f1" },
   "schema-fieldgroup": { strokeDasharray: "6 3", stroke: "#22c55e" },
   "schema-schema": { strokeDasharray: "0", stroke: "#a855f7" },
+  "schema-identity": { strokeDasharray: "4 4", stroke: "#0ea5e9" },
   "flow-dataset": { strokeDasharray: "3 3", stroke: "#f97316" },
   "flow-source": { strokeDasharray: "3 3", stroke: "#f97316" },
 };
 
 const LABEL_INSET = 32;
 
-/**
- * Returns a label position inset along the edge from a handle.
- * "inset" moves the label away from the node and along the edge path,
- * keeping it readable and clearly associated with that end of the edge.
- */
 function getEndLabelPos(
   x: number,
   y: number,
@@ -40,6 +37,9 @@ function getEndLabelPos(
 
 function RelationshipEdgeComponent(props: EdgeProps) {
   const {
+    id,
+    source,
+    target,
     sourceX,
     sourceY,
     targetX,
@@ -51,9 +51,17 @@ function RelationshipEdgeComponent(props: EdgeProps) {
     data,
   } = props;
 
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
   const d = data as unknown as RelationshipEdgeData | undefined;
   const relType = d?.relationshipType ?? "dataset-schema";
   const lineStyle = STYLE_MAP[relType] ?? STYLE_MAP["dataset-schema"];
+
+  // Determine if this edge is connected to the selected node
+  const isConnected = selectedNodeId ? (source === selectedNodeId || target === selectedNodeId) : false;
+  const haSelection = Boolean(selectedNodeId);
+  const opacity = haSelection ? (isConnected ? 1 : 0.15) : 1;
+  const strokeWidth = haSelection && isConnected ? 2.5 : 1.5;
+
   const [edgePath] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -72,7 +80,7 @@ function RelationshipEdgeComponent(props: EdgeProps) {
   const { lx: pkX, ly: pkY, anchor: pkAnchor } = getEndLabelPos(targetX, targetY, targetPosition, LABEL_INSET);
 
   return (
-    <g>
+    <g style={{ opacity, transition: "opacity 0.2s ease" }}>
       <BaseEdge
         path={edgePath}
         markerEnd={markerEnd}
@@ -80,7 +88,8 @@ function RelationshipEdgeComponent(props: EdgeProps) {
           ...style,
           stroke: lineStyle.stroke,
           strokeDasharray: lineStyle.strokeDasharray,
-          strokeWidth: 1.5,
+          strokeWidth,
+          transition: "stroke-width 0.2s ease",
         }}
       />
       {hasFk ? (

@@ -1,5 +1,10 @@
 "use client";
 
+import { Toggle } from "@/components/ui/toggle";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import type { EntityFilterKey, FilterState } from "@/lib/types";
 
 const FILTER_CONFIG: {
@@ -23,85 +28,86 @@ interface FilterControlsProps {
 export function FilterControls({ filters, onToggle, collapsed, onToggleCollapse }: FilterControlsProps) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Show</span>
-      <div className="mx-1 h-4 w-px bg-slate-200" />
-      <div className="flex flex-wrap items-center gap-1.5">
-        {FILTER_CONFIG.map(({ key, label, color }) => (
-          <div key={key} className="flex items-center">
-            <button
-              onClick={() => onToggle(key)}
-              className={`inline-flex h-7 items-center gap-1 rounded-l-md border px-2 text-[11px] font-medium transition-all ${
-                filters[key]
-                  ? "border-slate-300 bg-white text-slate-700 shadow-sm"
-                  : "border-slate-200 bg-slate-100 text-slate-400 line-through"
-              }`}
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${color} ${
-                  !filters[key] ? "opacity-30" : ""
-                }`}
-              />
-              {label}
-            </button>
-            {filters[key] && (
-              <button
-                onClick={() => onToggleCollapse(key)}
-                title={collapsed[key] ? "Expand all" : "Collapse into summary"}
-                className={`inline-flex h-7 items-center rounded-r-md border border-l-0 px-1.5 text-[10px] font-semibold transition-all ${
-                  collapsed[key]
-                    ? "border-slate-700 bg-slate-700 text-white"
-                    : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50"
-                }`}
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Show</span>
+      <Separator orientation="vertical" className="h-5" />
+
+      {FILTER_CONFIG.map(({ key, label, color }) => (
+        <div key={key} className="flex items-center">
+          <Toggle
+            pressed={filters[key]}
+            onPressedChange={() => onToggle(key)}
+            size="sm"
+            className="h-7 gap-1.5 px-2.5 text-[11px] data-[state=off]:line-through data-[state=off]:opacity-50"
+          >
+            <span className={`w-2 h-2 rounded-full ${color}`} />
+            {label}
+          </Toggle>
+          {filters[key] && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={collapsed[key] ? "default" : "ghost"}
+                  size="icon"
+                  className="h-7 w-6 ml-0.5"
+                  onClick={() => onToggleCollapse(key)}
+                >
+                  {collapsed[key] ? (
+                    <ChevronDown className="h-3 w-3" />
+                  ) : (
+                    <ChevronUp className="h-3 w-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {collapsed[key] ? "Expand all" : "Collapse into summary"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      ))}
+
+      <Separator orientation="vertical" className="h-5" />
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Filter</span>
+
+      {filters.datasets && (
+        <Toggle
+          pressed={filters.profileOnly}
+          onPressedChange={() => onToggle("profileOnly")}
+          size="sm"
+          className="h-7 text-[11px] px-2.5"
+        >
+          Profile Only
+        </Toggle>
+      )}
+
+      {filters.flows && (
+        <Toggle
+          pressed={filters.connectedFlowsOnly}
+          onPressedChange={() => onToggle("connectedFlowsOnly")}
+          size="sm"
+          className="h-7 text-[11px] px-2.5"
+        >
+          Connected Flows
+        </Toggle>
+      )}
+
+      {filters.schemas && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Toggle
+                pressed={filters.identityLinks}
+                onPressedChange={() => onToggle("identityLinks")}
+                size="sm"
+                className="h-7 text-[11px] px-2.5"
               >
-                {collapsed[key] ? "+" : "-"}
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="mx-1 h-4 w-px bg-slate-200" />
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Filter</span>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {filters.datasets && (
-          <button
-            onClick={() => onToggle("profileOnly")}
-            className={`inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium transition-all ${
-              filters.profileOnly
-                ? "bg-dataset text-white border-dataset"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            Profile Only
-          </button>
-        )}
-
-        {filters.flows && (
-          <button
-            onClick={() => onToggle("connectedFlowsOnly")}
-            className={`inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium transition-all ${
-              filters.connectedFlowsOnly
-                ? "bg-flow text-white border-flow"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            Connected Flows Only
-          </button>
-        )}
-
-        {filters.schemas && (
-          <button
-            onClick={() => onToggle("identityLinks")}
-            title="Show edges between schemas that share the same primary identity namespace"
-            className={`inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium transition-all ${
-              filters.identityLinks
-                ? "bg-schema text-white border-schema"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            Identity Links
-          </button>
-        )}
-      </div>
+                Identity Links
+              </Toggle>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Show edges between schemas sharing the same primary identity namespace</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }

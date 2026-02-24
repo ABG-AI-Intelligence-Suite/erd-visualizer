@@ -228,6 +228,13 @@ export interface RelationshipEdgeData {
   targetField?: string;
 }
 
+export interface FetchOptions {
+  datasets: boolean;
+  schemas: boolean;
+  fieldGroups: boolean;
+  flows: boolean;
+}
+
 export type EntityFilterKey = "datasets" | "schemas" | "fieldGroups" | "flows";
 export type ViewMode = "full" | "schema";
 

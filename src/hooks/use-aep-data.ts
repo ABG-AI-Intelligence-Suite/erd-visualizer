@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { AepConnectionConfig, AepDataset, AepDescriptor, AepSchema, AepFieldGroup, AepFlow, AepConnection, ErdField, ProgressStep, StepStatus } from "@/lib/types";
+import type { AepConnectionConfig, AepDataset, AepDescriptor, AepSchema, AepFieldGroup, AepFlow, AepConnection, ErdField, ProgressStep, StepStatus, FetchOptions } from "@/lib/types";
 import { transformToGraph, type TransformInput } from "@/lib/transform";
 import { useDatasets } from "./use-datasets";
 import { useSchemas } from "./use-schemas";
@@ -126,11 +126,32 @@ export function useAepData() {
     );
   }, []);
 
+  const DEFAULT_FETCH_OPTIONS: FetchOptions = {
+    datasets: true,
+    schemas: true,
+    fieldGroups: true,
+    flows: true,
+  };
+
   const fetchAll = useCallback(
-    async (config: AepConnectionConfig) => {
+    async (config: AepConnectionConfig, fetchOpts?: FetchOptions) => {
+      const opts = fetchOpts ?? DEFAULT_FETCH_OPTIONS;
       setLoading(true);
       setError(null);
-      setProgress(INITIAL_STEPS.map((s) => ({ ...s, status: "pending" as StepStatus })));
+
+      // Build the steps list based on what we're fetching
+      const activeSteps = INITIAL_STEPS.map((s) => {
+        // Skip steps for disabled entity types
+        if (s.id === "datasets" && !opts.datasets) return { ...s, status: "done" as StepStatus, count: 0 };
+        if (s.id === "flows" && !opts.flows) return { ...s, status: "done" as StepStatus, count: 0 };
+        if (s.id === "connections" && !opts.flows) return { ...s, status: "done" as StepStatus, count: 0 };
+        if (s.id === "field-groups" && !opts.fieldGroups) return { ...s, status: "done" as StepStatus, count: 0 };
+        // schemas and descriptors are always fetched if datasets OR schemas are requested
+        if (s.id === "schemas" && !opts.schemas && !opts.datasets) return { ...s, status: "done" as StepStatus, count: 0 };
+        if (s.id === "schema-fields" && !opts.schemas && !opts.datasets) return { ...s, status: "done" as StepStatus, count: 0 };
+        return { ...s, status: "pending" as StepStatus };
+      });
+      setProgress(activeSteps);
 
       let datasets:    AepDataset[]                = [];
       let descriptors: AepDescriptor[]             = [];
@@ -139,40 +160,56 @@ export function useAepData() {
       let schemaFieldsMap: Map<string, ErdField[]> | undefined;
       const errors: string[] = [];
 
-      updateStep("flows", "active");
-      const flowsPromise = fetchFlows(config)
-        .then((r) => { updateStep("flows", "done", r.flows.length); return r; })
-        .catch((err: Error) => {
-          errors.push(err.message);
-          updateStep("flows", "done", 0);
-          return { flows: [] as AepFlow[], connections: [] as AepConnection[] };
-        });
+      // Flows (optional)
+      let flowsPromise: Promise<{ flows: AepFlow[]; connections: AepConnection[] }>;
+      if (opts.flows) {
+        updateStep("flows", "active");
+        flowsPromise = fetchFlows(config)
+          .then((r) => { updateStep("flows", "done", r.flows.length); return r; })
+          .catch((err: Error) => {
+            errors.push(err.message);
+            updateStep("flows", "done", 0);
+            return { flows: [] as AepFlow[], connections: [] as AepConnection[] };
+          });
+      } else {
+        flowsPromise = Promise.resolve({ flows: [] as AepFlow[], connections: [] as AepConnection[] });
+      }
 
-      updateStep("datasets",    "active");
-      updateStep("descriptors", "active");
+      // Datasets (optional) and Descriptors (needed for schemas)
+      const fetchDatasetsProm = opts.datasets
+        ? (updateStep("datasets", "active"), fetchDatasets(config).then((r) => { updateStep("datasets", "done", r.length); return r; }))
+        : Promise.resolve([] as AepDataset[]);
+
+      const needDescriptors = opts.schemas || opts.datasets;
+      const fetchDescriptorsProm = needDescriptors
+        ? (updateStep("descriptors", "active"), fetchDescriptors(config).then((r) => { updateStep("descriptors", "done", r.length); return r; }))
+        : Promise.resolve([] as AepDescriptor[]);
 
       const [datasetsResult, descriptorsResult] = await Promise.allSettled([
-        fetchDatasets(config).then((r)    => { updateStep("datasets",    "done", r.length); return r; }),
-        fetchDescriptors(config).then((r) => { updateStep("descriptors", "done", r.length); return r; }),
+        fetchDatasetsProm,
+        fetchDescriptorsProm,
       ]);
 
       datasets    = datasetsResult.status    === "fulfilled" ? datasetsResult.value    : (errors.push(getSettledError(datasetsResult)),    []);
       descriptors = descriptorsResult.status === "fulfilled" ? descriptorsResult.value : (errors.push(getSettledError(descriptorsResult)), []);
 
-      const allSchemaIds = Array.from((() => {
-        const ids = new Set<string>();
-        schemaIdsFromDatasets(datasets).forEach((id) => ids.add(id));
-        schemaIdsFromDescriptors(descriptors).forEach((id) => ids.add(id));
-        return ids;
-      })());
+      // Schemas (if datasets or schemas requested)
+      if (opts.schemas || opts.datasets) {
+        const allSchemaIds = Array.from((() => {
+          const ids = new Set<string>();
+          schemaIdsFromDatasets(datasets).forEach((id) => ids.add(id));
+          schemaIdsFromDescriptors(descriptors).forEach((id) => ids.add(id));
+          return ids;
+        })());
 
-      updateStep("schemas", "active", 0, allSchemaIds.length);
-      schemas = await fetchSchemasByIds(allSchemaIds, config, (resolved, total) => {
-        updateStep("schemas", "active", resolved, total);
-      }).catch((err: Error) => { errors.push(err.message); return []; });
-      updateStep("schemas", "done", schemas.length);
+        updateStep("schemas", "active", 0, allSchemaIds.length);
+        schemas = await fetchSchemasByIds(allSchemaIds, config, (resolved, total) => {
+          updateStep("schemas", "active", resolved, total);
+        }).catch((err: Error) => { errors.push(err.message); return []; });
+        updateStep("schemas", "done", schemas.length);
+      }
 
-      const fgRefs = collectFieldGroupRefs(schemas);
+      const fgRefs = opts.fieldGroups ? collectFieldGroupRefs(schemas) : [];
       const schemaIdLookup = buildSchemaIdLookup(schemas);
       const uniqueSchemaIds = Array.from(new Set(
         datasets
@@ -180,15 +217,16 @@ export function useAepData() {
           .filter((id): id is string => id !== undefined)
       ));
 
-      updateStep("field-groups",  "active");
-      updateStep("schema-fields", "active");
+      // Field groups & schema fields
+      const fetchFgProm = opts.fieldGroups && fgRefs.length > 0
+        ? (updateStep("field-groups", "active"), fetchFieldGroupsByRefs(fgRefs, config).then((r) => { updateStep("field-groups", "done", r.length); return r; }))
+        : Promise.resolve([] as AepFieldGroup[]).then((r) => { updateStep("field-groups", "done", 0); return r; });
 
-      const [fieldGroupsResult, schemaFieldsResult] = await Promise.allSettled([
-        fetchFieldGroupsByRefs(fgRefs, config).then((r) => { updateStep("field-groups", "done", r.length); return r; }),
-        uniqueSchemaIds.length > 0
-          ? fetchSchemaFields(uniqueSchemaIds, config, descriptors).then((r) => { updateStep("schema-fields", "done", r.size); return r; })
-          : Promise.resolve(new Map<string, ErdField[]>()).then((r) => { updateStep("schema-fields", "done", 0); return r; }),
-      ]);
+      const fetchSfProm = (opts.schemas || opts.datasets) && uniqueSchemaIds.length > 0
+        ? (updateStep("schema-fields", "active"), fetchSchemaFields(uniqueSchemaIds, config, descriptors).then((r) => { updateStep("schema-fields", "done", r.size); return r; }))
+        : Promise.resolve(new Map<string, ErdField[]>()).then((r) => { updateStep("schema-fields", "done", 0); return r; });
+
+      const [fieldGroupsResult, schemaFieldsResult] = await Promise.allSettled([fetchFgProm, fetchSfProm]);
 
       fieldGroups     = fieldGroupsResult.status  === "fulfilled" ? fieldGroupsResult.value  : (errors.push(getSettledError(fieldGroupsResult)),  []);
       schemaFieldsMap = schemaFieldsResult.status === "fulfilled" ? schemaFieldsResult.value : undefined;

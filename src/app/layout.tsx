@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,8 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="h-screen overflow-hidden bg-gray-50 antialiased">
-        {children}
+      <body className="h-screen overflow-hidden antialiased">
+        <TooltipProvider delayDuration={300}>
+          {children}
+        </TooltipProvider>
       </body>
     </html>
   );

@@ -2,13 +2,24 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { cn } from "@/lib/utils";
+import { useCanvasStore } from "@/store/canvas-store";
 import type { IdentityNodeData } from "@/lib/types";
 
-function IdentityNodeComponent({ data }: NodeProps) {
+function IdentityNodeComponent({ id, data }: NodeProps) {
   const d = data as unknown as IdentityNodeData;
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+  const isSelected = selectedNodeId === id;
+
   return (
     <div className="relative flex flex-col items-center">
-      <div className="rounded-2xl border-2 border-identity bg-identity-light px-5 py-3 flex flex-col items-center gap-0.5 min-w-[140px] shadow-sm">
+      <div
+        className={cn(
+          "rounded-2xl border-2 border-identity bg-identity-light px-5 py-3 flex flex-col items-center gap-0.5 min-w-[140px] shadow-sm transition-all",
+          isSelected && "ring-2 ring-primary/50 shadow-md",
+          "hover:shadow-md"
+        )}
+      >
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-identity" />
           <span className="text-[9px] font-bold uppercase tracking-widest text-identity-dark">

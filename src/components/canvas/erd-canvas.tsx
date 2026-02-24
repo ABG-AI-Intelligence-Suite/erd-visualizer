@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyNodeChanges,
   ReactFlow,
+  MiniMap,
   useReactFlow,
   type NodeTypes,
   type EdgeTypes,
@@ -21,6 +22,7 @@ import { SummaryNode } from "@/components/nodes/summary-node";
 import { IdentityNode } from "@/components/nodes/identity-node";
 import { RelationshipEdge } from "@/components/edges/relationship-edge";
 import { ControlsPanel } from "./controls-panel";
+import { LegendOverlay } from "./legend-overlay";
 import { useCanvasStore } from "@/store/canvas-store";
 
 const nodeTypes: NodeTypes = {
@@ -158,7 +160,25 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
         onlyRenderVisibleElements
       >
         <ControlsPanel />
+        <MiniMap
+          nodeColor={(node) => {
+            const colorMap: Record<string, string> = {
+              datasetNode: "#3b82f6",
+              schemaNode: "#8b5cf6",
+              fieldGroupNode: "#22c55e",
+              flowNode: "#f97316",
+              summaryNode: "#94a3b8",
+              identityNode: "#0ea5e9",
+            };
+            return colorMap[node.type ?? ""] ?? "#94a3b8";
+          }}
+          maskColor="rgba(0,0,0,0.08)"
+          className="!bg-card/90 !border !rounded-lg !shadow-sm"
+          pannable
+          zoomable
+        />
       </ReactFlow>
+      <LegendOverlay />
     </div>
   );
 }
