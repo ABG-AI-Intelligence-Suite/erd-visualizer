@@ -17,6 +17,7 @@ import { ShortcutsDialog } from "@/components/keyboard-shortcuts/shortcuts-dialo
 import { useCanvasStore } from "@/store/canvas-store";
 import { useAepData } from "@/hooks/use-aep-data";
 import { useEnvAutoConnect } from "@/hooks/use-env-auto-connect";
+import { useSnapshots } from "@/hooks/use-snapshots";
 import { useFilteredGraph } from "@/hooks/use-filtered-graph";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { getMockTransformInput } from "@/lib/mock-data";
@@ -143,6 +144,7 @@ export default function Home() {
 
   const { fetchAll, loading, error: fetchError, progress, loadMockData } = useAepData();
   const { envConfig, hasCredentials } = useEnvAutoConnect();
+  const { saveSnapshot } = useSnapshots();
 
   const handleConnect = useCallback(
     async (config: AepConnectionConfig, fetchOpts?: FetchOptions) => {
@@ -158,10 +160,12 @@ export default function Home() {
         const currentNodes = useCanvasStore.getState().rawNodes;
         if (currentNodes.length > 0) {
           setConnection(config);
+          const currentEdges = useCanvasStore.getState().rawEdges;
+          saveSnapshot(config, currentNodes, currentEdges, fetchOpts).catch(console.error);
         }
       }
     },
-    [fetchAll, setConnection, setIsLoading, setError]
+    [fetchAll, setConnection, setIsLoading, setError, saveSnapshot]
   );
 
   const handleLoadSample = useCallback(() => {

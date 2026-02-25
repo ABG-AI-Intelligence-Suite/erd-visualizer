@@ -4,6 +4,9 @@ import { FilterControls } from "./filter-controls";
 import { useCanvasStore } from "@/store/canvas-store";
 import type { Node } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChevronRight } from "lucide-react";
 
 interface ToolbarProps {
@@ -40,7 +43,7 @@ export function Toolbar({
 
   return (
     <div className="border-b bg-card/50">
-      {/* Filter bar */}
+      {/* Filter bar — full view */}
       {viewMode === "full" && (
         <div className="flex items-center gap-2 px-4 py-1.5">
           <FilterControls
@@ -49,6 +52,29 @@ export function Toolbar({
             collapsed={collapsed}
             onToggleCollapse={toggleCollapse}
           />
+        </div>
+      )}
+
+      {/* Filter bar — schema view */}
+      {viewMode === "schema" && (
+        <div className="flex items-center gap-2 px-4 py-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Filter</span>
+          <Separator orientation="vertical" className="h-5" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Toggle
+                  pressed={filters.identityLinks}
+                  onPressedChange={() => toggleFilter("identityLinks")}
+                  size="sm"
+                  className="h-7 text-[11px] px-2.5"
+                >
+                  Identity Links
+                </Toggle>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Show edges between schemas sharing the same primary identity namespace</TooltipContent>
+          </Tooltip>
         </div>
       )}
 

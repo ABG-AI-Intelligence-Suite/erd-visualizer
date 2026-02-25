@@ -233,6 +233,7 @@ export interface FetchOptions {
   schemas: boolean;
   fieldGroups: boolean;
   flows: boolean;
+  snapshotLabel?: string;
 }
 
 export type EntityFilterKey = "datasets" | "schemas" | "fieldGroups" | "flows";

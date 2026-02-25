@@ -98,10 +98,12 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
     [setSelectedNode]
   );
 
+  const detailPanelPinned = useCanvasStore((s) => s.detailPanelPinned);
+
   const onPaneClick = useCallback(() => {
-    setSelectedNode(null);
+    if (!detailPanelPinned) setSelectedNode(null);
     if (viewMode === "schema" && focusNodeId) setFocusNode(null);
-  }, [setSelectedNode, setFocusNode, viewMode, focusNodeId]);
+  }, [setSelectedNode, setFocusNode, viewMode, focusNodeId, detailPanelPinned]);
 
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: Node) => {

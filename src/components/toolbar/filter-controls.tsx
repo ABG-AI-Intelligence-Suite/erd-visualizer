@@ -91,23 +91,6 @@ export function FilterControls({ filters, onToggle, collapsed, onToggleCollapse 
         </Toggle>
       )}
 
-      {filters.schemas && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <Toggle
-                pressed={filters.identityLinks}
-                onPressedChange={() => onToggle("identityLinks")}
-                size="sm"
-                className="h-7 text-[11px] px-2.5"
-              >
-                Identity Links
-              </Toggle>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>Show edges between schemas sharing the same primary identity namespace</TooltipContent>
-        </Tooltip>
-      )}
     </div>
   );
 }
