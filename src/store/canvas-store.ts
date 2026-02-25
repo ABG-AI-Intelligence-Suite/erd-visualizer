@@ -43,6 +43,8 @@ interface CanvasStore {
   rawNodes: Node[];
   rawEdges: Edge[];
   setGraph: (nodes: Node[], edges: Edge[]) => void;
+  mergeGraph: (nodes: Node[], edges: Edge[]) => void;
+  removeEntityTypes: (entityTypes: string[]) => void;
 
   // UI panels
   detailPanelPinned: boolean;
@@ -62,6 +64,9 @@ interface CanvasStore {
 
   shortcutsDialogOpen: boolean;
   setShortcutsDialogOpen: (open: boolean) => void;
+
+  activeSnapshotLabel: string | null;
+  setActiveSnapshotLabel: (label: string | null) => void;
 }
 
 export const useCanvasStore = create<CanvasStore>((set) => ({
@@ -134,6 +139,30 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   rawNodes: [],
   rawEdges: [],
   setGraph: (nodes, edges) => set({ rawNodes: nodes, rawEdges: edges }),
+  mergeGraph: (nodes, edges) =>
+    set((state) => {
+      const existingNodeIds = new Set(state.rawNodes.map((n) => n.id));
+      const existingEdgeIds = new Set(state.rawEdges.map((e) => e.id));
+      return {
+        rawNodes: [...state.rawNodes, ...nodes.filter((n) => !existingNodeIds.has(n.id))],
+        rawEdges: [...state.rawEdges, ...edges.filter((e) => !existingEdgeIds.has(e.id))],
+      };
+    }),
+  removeEntityTypes: (entityTypes) =>
+    set((state) => {
+      const typeSet = new Set(entityTypes);
+      // Identity nodes are schema-derived — remove them when schemas are removed
+      if (typeSet.has("schema")) typeSet.add("identity");
+      const removedIds = new Set(
+        state.rawNodes
+          .filter((n) => typeSet.has((n.data as { entityType?: string })?.entityType ?? ""))
+          .map((n) => n.id)
+      );
+      return {
+        rawNodes: state.rawNodes.filter((n) => !removedIds.has(n.id)),
+        rawEdges: state.rawEdges.filter((e) => !removedIds.has(e.source) && !removedIds.has(e.target)),
+      };
+    }),
 
   detailPanelPinned: false,
   toggleDetailPanelPinned: () =>
@@ -153,4 +182,7 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
 
   shortcutsDialogOpen: false,
   setShortcutsDialogOpen: (open) => set({ shortcutsDialogOpen: open }),
+
+  activeSnapshotLabel: null,
+  setActiveSnapshotLabel: (label) => set({ activeSnapshotLabel: label }),
 }));

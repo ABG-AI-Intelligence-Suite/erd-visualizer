@@ -17,6 +17,7 @@ export interface SnapshotMeta {
 export function useSnapshots() {
   const setGraph = useCanvasStore((s) => s.setGraph);
   const setConnection = useCanvasStore((s) => s.setConnection);
+  const setActiveSnapshotLabel = useCanvasStore((s) => s.setActiveSnapshotLabel);
 
   async function listSnapshots(): Promise<SnapshotMeta[]> {
     const res = await fetch("/api/snapshots");
@@ -45,19 +46,15 @@ export function useSnapshots() {
   async function loadSnapshot(
     filename: string,
     orgId: string,
-    sandboxName: string
+    sandboxName: string,
+    label: string | null
   ): Promise<void> {
     const res = await fetch(`/api/snapshots/${encodeURIComponent(filename)}`);
     if (!res.ok) throw new Error("Failed to load snapshot");
     const data = await res.json();
     setGraph(data.nodes, data.edges);
-    const connectionConfig: AepConnectionConfig = {
-      orgId,
-      sandbox: sandboxName,
-      token: "",
-      apiKey: "",
-    };
-    setConnection(connectionConfig);
+    setConnection({ orgId, sandbox: sandboxName, token: "", apiKey: "" });
+    setActiveSnapshotLabel(label);
   }
 
   return { listSnapshots, saveSnapshot, loadSnapshot };

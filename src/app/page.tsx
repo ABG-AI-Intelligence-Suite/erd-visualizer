@@ -142,7 +142,7 @@ export default function Home() {
   const setIsLoading = useCanvasStore((s) => s.setIsLoading);
   const setError = useCanvasStore((s) => s.setError);
 
-  const { fetchAll, loading, error: fetchError, progress, loadMockData } = useAepData();
+  const { fetchAll, fetchUpdate, loading, error: fetchError, progress, loadMockData } = useAepData();
   const { envConfig, hasCredentials } = useEnvAutoConnect();
   const { saveSnapshot } = useSnapshots();
 
@@ -156,7 +156,6 @@ export default function Home() {
         setError(err instanceof Error ? err.message : "Connection failed");
       } finally {
         setIsLoading(false);
-        // Only mark as connected if we actually loaded some data
         const currentNodes = useCanvasStore.getState().rawNodes;
         if (currentNodes.length > 0) {
           setConnection(config);
@@ -166,6 +165,28 @@ export default function Home() {
       }
     },
     [fetchAll, setConnection, setIsLoading, setError, saveSnapshot]
+  );
+
+  const handleUpdate = useCallback(
+    async (config: AepConnectionConfig, fetchOpts: FetchOptions) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        await fetchUpdate(config, fetchOpts);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Update failed");
+      } finally {
+        setIsLoading(false);
+        // Update connection config (token may have been refreshed)
+        const currentNodes = useCanvasStore.getState().rawNodes;
+        if (currentNodes.length > 0) {
+          setConnection(config);
+          const currentEdges = useCanvasStore.getState().rawEdges;
+          saveSnapshot(config, currentNodes, currentEdges, fetchOpts).catch(console.error);
+        }
+      }
+    },
+    [fetchUpdate, setConnection, setIsLoading, setError, saveSnapshot]
   );
 
   const handleLoadSample = useCallback(() => {
@@ -181,7 +202,7 @@ export default function Home() {
           envConfig={envConfig}
         />
       </ReactFlowProvider>
-      <ConnectionDialog onConnect={handleConnect} />
+      <ConnectionDialog onConnect={handleConnect} onUpdate={handleUpdate} />
       <EmptyState onLoadSample={handleLoadSample} />
       <LoadingOverlay loading={loading} progress={progress} />
       <ErrorBanner fetchError={fetchError} />

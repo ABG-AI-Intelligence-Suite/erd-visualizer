@@ -20,13 +20,10 @@ import type { AepConnectionConfig, FetchOptions } from "@/lib/types";
 
 interface ConnectionDialogProps {
   onConnect: (config: AepConnectionConfig, fetchOpts?: FetchOptions) => void;
+  onUpdate: (config: AepConnectionConfig, fetchOpts: FetchOptions) => void;
 }
 
-const TYPE_BADGES: Array<{
-  key: string;
-  label: string;
-  className: string;
-}> = [
+const TYPE_BADGES: Array<{ key: string; label: string; className: string }> = [
   { key: "dataset",    label: "Datasets",     className: "bg-dataset/20 text-dataset border-dataset/30" },
   { key: "schema",     label: "Schemas",      className: "bg-schema/20 text-schema border-schema/30" },
   { key: "fieldGroup", label: "Field Groups", className: "bg-fieldgroup/20 text-fieldgroup border-fieldgroup/30" },
@@ -39,12 +36,8 @@ function SnapshotTypeBadges({ typeCounts }: { typeCounts: Record<string, number>
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {present.map((b) => (
-        <span
-          key={b.key}
-          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0 text-[10px] font-medium ${b.className}`}
-        >
-          {b.label}
-          <span className="opacity-70">{typeCounts[b.key]}</span>
+        <span key={b.key} className={`inline-flex items-center gap-1 rounded border px-1.5 py-0 text-[10px] font-medium ${b.className}`}>
+          {b.label} <span className="opacity-70">{typeCounts[b.key]}</span>
         </span>
       ))}
     </div>
@@ -53,13 +46,8 @@ function SnapshotTypeBadges({ typeCounts }: { typeCounts: Record<string, number>
 
 function formatDate(iso: string) {
   try {
-    return new Date(iso).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  } catch {
-    return iso;
-  }
+    return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  } catch { return iso; }
 }
 
 function groupByHash(snapshots: SnapshotMeta[]) {
@@ -75,65 +63,153 @@ function groupByHash(snapshots: SnapshotMeta[]) {
   return groups;
 }
 
-export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
-  const open = useCanvasStore((s) => s.connectionDialogOpen);
-  const setOpen = useCanvasStore((s) => s.setConnectionDialogOpen);
-  const connection = useCanvasStore((s) => s.connection);
-  const clearConnection = useCanvasStore((s) => s.clearConnection);
-  const isLoading = useCanvasStore((s) => s.isLoading);
-  const isConnected = Boolean(connection);
+// Maps FetchOptions keys to the entityType values stored on graph nodes
+const ENTITY_TYPE_MAP: Record<string, string> = {
+  datasets:    "dataset",
+  schemas:     "schema",
+  fieldGroups: "fieldGroup",
+  flows:       "flow",
+};
 
-  const [token, setToken] = useState("");
-  const [orgId, setOrgId] = useState("");
-  const [sandbox, setSandbox] = useState("prod");
-  const [apiKey, setApiKey] = useState("");
+export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps) {
+  const open                  = useCanvasStore((s) => s.connectionDialogOpen);
+  const setOpen               = useCanvasStore((s) => s.setConnectionDialogOpen);
+  const connection            = useCanvasStore((s) => s.connection);
+  const clearConnection       = useCanvasStore((s) => s.clearConnection);
+  const isLoading             = useCanvasStore((s) => s.isLoading);
+  const rawNodes              = useCanvasStore((s) => s.rawNodes);
+  const removeEntityTypes     = useCanvasStore((s) => s.removeEntityTypes);
+  const activeSnapshotLabel   = useCanvasStore((s) => s.activeSnapshotLabel);
+  const isConnected           = Boolean(connection);
+
+  // Which entity types currently exist in the graph
+  const loadedTypes = {
+    datasets:    rawNodes.some((n) => (n.data as { entityType?: string })?.entityType === "dataset"),
+    schemas:     rawNodes.some((n) => (n.data as { entityType?: string })?.entityType === "schema"),
+    fieldGroups: rawNodes.some((n) => (n.data as { entityType?: string })?.entityType === "fieldGroup"),
+    flows:       rawNodes.some((n) => (n.data as { entityType?: string })?.entityType === "flow"),
+  };
+
+  const [token,         setToken]         = useState("");
+  const [orgId,         setOrgId]         = useState("");
+  const [sandbox,       setSandbox]       = useState("prod");
+  const [apiKey,        setApiKey]        = useState("");
   const [snapshotLabel, setSnapshotLabel] = useState("");
 
-  const [fetchDatasets, setFetchDatasets] = useState(true);
-  const [fetchSchemas, setFetchSchemas] = useState(true);
+  const [fetchDatasets,    setFetchDatasets]    = useState(true);
+  const [fetchSchemas,     setFetchSchemas]     = useState(true);
   const [fetchFieldGroups, setFetchFieldGroups] = useState(true);
-  const [fetchFlows, setFetchFlows] = useState(false);
+  const [fetchFlows,       setFetchFlows]       = useState(false);
 
   const { listSnapshots, loadSnapshot } = useSnapshots();
-  const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
-  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [snapshots,       setSnapshots]       = useState<SnapshotMeta[]>([]);
+  const [snapshotsOpen,   setSnapshotsOpen]   = useState(false);
   const [loadingSnapshot, setLoadingSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/config")
-      .then((r) => r.json())
-      .then((cfg: AepConnectionConfig) => {
-        if (cfg.token) setToken(cfg.token);
-        if (cfg.orgId) setOrgId(cfg.orgId);
-        if (cfg.sandbox) setSandbox(cfg.sandbox);
-        if (cfg.apiKey) setApiKey(cfg.apiKey);
-      })
-      .catch(() => {});
 
-    listSnapshots()
-      .then(setSnapshots)
-      .catch(() => setSnapshots([]));
+    // Initialise checkboxes to match what's already in the graph
+    setFetchDatasets(loadedTypes.datasets    || !isConnected);
+    setFetchSchemas(loadedTypes.schemas      || !isConnected);
+    setFetchFieldGroups(loadedTypes.fieldGroups);
+    setFetchFlows(loadedTypes.flows);
+
+    // Pre-fill snapshot label from whatever was last loaded
+    setSnapshotLabel(activeSnapshotLabel ?? "");
+
+    if (isConnected && connection) {
+      // Already connected (live or snapshot): use the loaded connection's values.
+      // Do NOT override with .env — the active sandbox takes priority.
+      if (connection.token)   setToken(connection.token);
+      if (connection.orgId)   setOrgId(connection.orgId);
+      if (connection.sandbox) setSandbox(connection.sandbox);
+      if (connection.apiKey)  setApiKey(connection.apiKey);
+    } else {
+      // No active connection — seed from .env so the user doesn't have to type everything.
+      fetch("/api/config")
+        .then((r) => r.json())
+        .then((cfg: AepConnectionConfig) => {
+          if (cfg.token)   setToken(cfg.token);
+          if (cfg.orgId)   setOrgId(cfg.orgId);
+          if (cfg.sandbox) setSandbox(cfg.sandbox);
+          if (cfg.apiKey)  setApiKey(cfg.apiKey);
+        })
+        .catch(() => {});
+    }
+
+    listSnapshots().then(setSnapshots).catch(() => setSnapshots([]));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Compute what the user intends to change ─────────────────────────────────
+
+  // Types to remove: were loaded, now unchecked
+  const typesToRemove: string[] = isConnected ? (
+    Object.entries({
+      datasets:    { loaded: loadedTypes.datasets,    checked: fetchDatasets },
+      schemas:     { loaded: loadedTypes.schemas,     checked: fetchSchemas },
+      fieldGroups: { loaded: loadedTypes.fieldGroups, checked: fetchFieldGroups },
+      flows:       { loaded: loadedTypes.flows,       checked: fetchFlows },
+    })
+      .filter(([, { loaded, checked }]) => loaded && !checked)
+      .map(([key]) => ENTITY_TYPE_MAP[key])
+  ) : [];
+
+  // Types to add: not loaded, now checked
+  const addOpts: FetchOptions | null = isConnected ? {
+    datasets:    !loadedTypes.datasets    && fetchDatasets,
+    schemas:     !loadedTypes.schemas     && fetchSchemas,
+    fieldGroups: !loadedTypes.fieldGroups && fetchFieldGroups,
+    flows:       !loadedTypes.flows       && fetchFlows,
+  } : null;
+
+  const hasRemovals  = typesToRemove.length > 0;
+  const hasAdditions = addOpts ? Object.values(addOpts).some(Boolean) : false;
+
+  // Credentials are only required when making API calls (i.e. additions)
+  const credentialsRequired = !isConnected || hasAdditions;
+  const credentialsPresent  = Boolean(token && orgId && apiKey);
+
+  const submitDisabled =
+    isLoading ||
+    (credentialsRequired && !credentialsPresent) ||
+    (isConnected && !hasAdditions && !hasRemovals);
+
+  const buttonLabel = isLoading
+    ? (hasAdditions || !isConnected ? "Updating…" : "Applying…")
+    : isConnected
+      ? (hasAdditions ? "Update" : "Apply")
+      : "Connect";
+
+  // ── Submit ───────────────────────────────────────────────────────────────────
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token || !orgId || !apiKey) return;
-    const fetchOpts: FetchOptions = {
-      datasets: fetchDatasets,
-      schemas: fetchSchemas,
-      fieldGroups: fetchFieldGroups,
-      flows: fetchFlows,
-      snapshotLabel: snapshotLabel.trim() || undefined,
-    };
-    onConnect({ token, orgId, sandbox, apiKey }, fetchOpts);
+    const label = snapshotLabel.trim() || undefined;
+
+    if (isConnected) {
+      if (hasRemovals) {
+        removeEntityTypes(typesToRemove);
+      }
+      if (hasAdditions && addOpts) {
+        onUpdate({ token, orgId, sandbox, apiKey }, { ...addOpts, snapshotLabel: label });
+      }
+    } else {
+      onConnect({ token, orgId, sandbox, apiKey }, {
+        datasets:    fetchDatasets,
+        schemas:     fetchSchemas,
+        fieldGroups: fetchFieldGroups,
+        flows:       fetchFlows,
+        snapshotLabel: label,
+      });
+    }
     setOpen(false);
   };
 
   const handleLoadSnapshot = async (snapshot: SnapshotMeta) => {
     setLoadingSnapshot(snapshot.filename);
     try {
-      await loadSnapshot(snapshot.filename, snapshot.orgId, snapshot.sandboxName);
+      await loadSnapshot(snapshot.filename, snapshot.orgId, snapshot.sandboxName, snapshot.label);
       setOpen(false);
     } catch (err) {
       console.error("Failed to load snapshot:", err);
@@ -144,6 +220,13 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
 
   const grouped = groupByHash(snapshots);
 
+  const ENTITY_ROWS = [
+    { label: "Datasets",     loaded: loadedTypes.datasets,    checked: fetchDatasets,    set: setFetchDatasets,    color: "bg-dataset" },
+    { label: "Schemas",      loaded: loadedTypes.schemas,     checked: fetchSchemas,     set: setFetchSchemas,     color: "bg-schema" },
+    { label: "Field Groups", loaded: loadedTypes.fieldGroups, checked: fetchFieldGroups, set: setFetchFieldGroups, color: "bg-fieldgroup" },
+    { label: "Flows",        loaded: loadedTypes.flows,       checked: fetchFlows,       set: setFetchFlows,       color: "bg-flow" },
+  ];
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
@@ -153,82 +236,97 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
             {isConnected ? "Connection Settings" : "Connect to AEP"}
           </DialogTitle>
           <DialogDescription>
-            Enter your Adobe Experience Platform credentials. They are only sent to the local proxy and never stored.
+            {isConnected
+              ? "Check types to fetch and add them, or uncheck loaded types to remove them from the graph. Removing requires no credentials."
+              : "Enter your Adobe Experience Platform credentials. They are only sent to the local proxy and never stored."}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="token" className="text-xs">Bearer Token</Label>
-            <Input
-              id="token"
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="ey..."
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="orgId" className="text-xs">Org ID</Label>
-            <Input
-              id="orgId"
-              type="text"
-              value={orgId}
-              onChange={(e) => setOrgId(e.target.value)}
-              placeholder="ABC123@AdobeOrg"
-              required
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          {/* Credentials — visually de-emphasised when not required */}
+          <div className={`space-y-3 ${isConnected && !hasAdditions ? "opacity-50" : ""}`}>
             <div className="space-y-2">
-              <Label htmlFor="sandbox" className="text-xs">Sandbox</Label>
+              <Label htmlFor="token" className="text-xs">
+                Bearer Token
+                {isConnected && !hasAdditions && (
+                  <span className="ml-1 font-normal text-muted-foreground">(not needed for removal)</span>
+                )}
+              </Label>
               <Input
-                id="sandbox"
-                type="text"
-                value={sandbox}
-                onChange={(e) => setSandbox(e.target.value)}
-                placeholder="prod"
+                id="token"
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="ey..."
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="apiKey" className="text-xs">API Key</Label>
+              <Label htmlFor="orgId" className="text-xs">Org ID</Label>
               <Input
-                id="apiKey"
+                id="orgId"
                 type="text"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="your-api-key"
-                required
+                value={orgId}
+                onChange={(e) => setOrgId(e.target.value)}
+                placeholder="ABC123@AdobeOrg"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="sandbox" className="text-xs">Sandbox</Label>
+                <Input
+                  id="sandbox"
+                  type="text"
+                  value={sandbox}
+                  onChange={(e) => setSandbox(e.target.value)}
+                  placeholder="prod"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="apiKey" className="text-xs">API Key</Label>
+                <Input
+                  id="apiKey"
+                  type="text"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="your-api-key"
+                />
+              </div>
             </div>
           </div>
 
           <Separator />
 
           <div className="space-y-2">
-            <Label className="text-xs font-semibold">Data to Fetch</Label>
+            <Label className="text-xs font-semibold">Data in Graph</Label>
             <p className="text-[11px] text-muted-foreground">
-              Select which entity types to load. You can fetch additional types later.
+              {isConnected
+                ? "Checked types are in the graph. Uncheck to remove; check new types to fetch and add."
+                : "Select which entity types to load."}
             </p>
             <div className="grid grid-cols-2 gap-2 mt-2">
-              {[
-                { label: "Datasets",     checked: fetchDatasets,    set: setFetchDatasets,    color: "bg-dataset" },
-                { label: "Schemas",      checked: fetchSchemas,     set: setFetchSchemas,     color: "bg-schema" },
-                { label: "Field Groups", checked: fetchFieldGroups, set: setFetchFieldGroups, color: "bg-fieldgroup" },
-                { label: "Flows",        checked: fetchFlows,       set: setFetchFlows,       color: "bg-flow" },
-              ].map(({ label, checked, set, color }) => (
-                <label key={label} className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => set(e.target.checked)}
-                    className="h-4 w-4 rounded border-input"
-                  />
-                  <span className={`w-2 h-2 rounded-full ${color}`} />
-                  <span className="text-xs text-foreground">{label}</span>
-                </label>
-              ))}
+              {ENTITY_ROWS.map(({ label, loaded, checked, set, color }) => {
+                const willAdd    = isConnected && !loaded && checked;
+                const willRemove = isConnected && loaded && !checked;
+                return (
+                  <label key={label} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => set(e.target.checked)}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <span className={`w-2 h-2 rounded-full ${color}`} />
+                    <span className={`text-xs ${willRemove ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                      {label}
+                    </span>
+                    {willAdd    && <span className="text-[10px] text-blue-500 ml-auto">+add</span>}
+                    {willRemove && <span className="text-[10px] text-destructive ml-auto">−remove</span>}
+                    {loaded && !willRemove && isConnected && (
+                      <span className="text-[10px] text-muted-foreground ml-auto">loaded</span>
+                    )}
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -244,9 +342,6 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
               placeholder="e.g. pre-migration baseline, Q1 review"
               maxLength={80}
             />
-            <p className="text-[11px] text-muted-foreground">
-              Saved with the snapshot so you can identify it later.
-            </p>
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
@@ -255,33 +350,22 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
                 type="button"
                 variant="destructive"
                 size="sm"
-                onClick={() => {
-                  clearConnection();
-                  setOpen(false);
-                }}
+                onClick={() => { clearConnection(); setOpen(false); }}
               >
                 Disconnect
               </Button>
             )}
-            <Button
-              type="submit"
-              disabled={isLoading || !token || !orgId || !apiKey || (!fetchDatasets && !fetchSchemas && !fetchFieldGroups && !fetchFlows)}
-            >
+            <Button type="submit" disabled={submitDisabled}>
               {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Connecting...
-                </>
-              ) : (
-                "Connect"
-              )}
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{buttonLabel}</>
+              ) : buttonLabel}
             </Button>
           </DialogFooter>
         </form>
 
         <Separator />
 
-        {/* Saved Snapshots section */}
+        {/* Saved Snapshots */}
         <div className="space-y-2">
           <button
             type="button"
@@ -293,11 +377,9 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
             {snapshots.length > 0 && (
               <span className="text-[10px] text-muted-foreground mr-1">{snapshots.length}</span>
             )}
-            {snapshotsOpen ? (
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-3 w-3 text-muted-foreground" />
-            )}
+            {snapshotsOpen
+              ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
           </button>
 
           {snapshotsOpen && (
@@ -313,22 +395,15 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
                     <div key={hash} className="space-y-1">
                       <p className="text-[11px] font-medium text-foreground pl-6 truncate">
                         {first.sandboxName}
-                        <span className="text-muted-foreground font-normal ml-1">
-                          — {first.orgId}
-                        </span>
+                        <span className="text-muted-foreground font-normal ml-1">— {first.orgId}</span>
                       </p>
                       <div className="space-y-1.5 pl-6">
                         {group.map((snap) => (
-                          <div
-                            key={snap.filename}
-                            className="flex items-start justify-between gap-2 rounded-md border px-2 py-1.5"
-                          >
+                          <div key={snap.filename} className="flex items-start justify-between gap-2 rounded-md border px-2 py-1.5">
                             <div className="min-w-0 flex-1">
                               {snap.label ? (
                                 <>
-                                  <p className="text-[12px] font-medium text-foreground truncate">
-                                    {snap.label}
-                                  </p>
+                                  <p className="text-[12px] font-medium text-foreground truncate">{snap.label}</p>
                                   <p className="text-[10px] text-muted-foreground">
                                     {formatDate(snap.capturedAt)} · {snap.counts.nodes} nodes
                                   </p>
@@ -336,9 +411,7 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
                               ) : (
                                 <p className="text-[11px] text-foreground">
                                   {formatDate(snap.capturedAt)}
-                                  <span className="text-muted-foreground ml-1">
-                                    · {snap.counts.nodes} nodes
-                                  </span>
+                                  <span className="text-muted-foreground ml-1">· {snap.counts.nodes} nodes</span>
                                 </p>
                               )}
                               <SnapshotTypeBadges typeCounts={snap.typeCounts ?? {}} />
@@ -351,11 +424,9 @@ export function ConnectionDialog({ onConnect }: ConnectionDialogProps) {
                               disabled={loadingSnapshot === snap.filename}
                               onClick={() => handleLoadSnapshot(snap)}
                             >
-                              {loadingSnapshot === snap.filename ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                "Load"
-                              )}
+                              {loadingSnapshot === snap.filename
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : "Load"}
                             </Button>
                           </div>
                         ))}

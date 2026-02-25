@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import type { AepConnectionConfig, AepDataset, AepDescriptor, AepSchema, AepFieldGroup, AepFlow, AepConnection, ErdField, ProgressStep, StepStatus, FetchOptions } from "@/lib/types";
+import type { Node } from "@xyflow/react";
+import type { AepConnectionConfig, AepDataset, AepDescriptor, AepSchema, AepFieldGroup, AepFlow, AepConnection, ErdField, ProgressStep, StepStatus, FetchOptions, SchemaNodeData, DatasetNodeData } from "@/lib/types";
 import { transformToGraph, type TransformInput } from "@/lib/transform";
 import { useDatasets } from "./use-datasets";
 import { useSchemas } from "./use-schemas";
@@ -106,6 +107,7 @@ export function useAepData() {
   const { fetchFlows, fetchMissingConnections } = useFlows();
   const { fetchSchemaFields } = useSchemaFields();
   const setGraph = useCanvasStore((s) => s.setGraph);
+  const mergeGraph = useCanvasStore((s) => s.mergeGraph);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -288,10 +290,162 @@ export function useAepData() {
     [fetchDatasets, fetchDescriptors, fetchSchemasByIds, fetchFieldGroupsByRefs, fetchFlows, fetchMissingConnections, fetchSchemaFields, updateStep, setGraph]
   );
 
+  // Extracts lightweight schema objects from existing graph nodes so fetchUpdate
+  // can collect field-group refs without re-fetching schemas from the API.
+  function contextSchemasFromNodes(nodes: Node[]): AepSchema[] {
+    return nodes
+      .filter((n) => (n.data as { entityType?: string })?.entityType === "schema")
+      .map((n) => {
+        const d = n.data as SchemaNodeData;
+        return {
+          $id: d.schemaId,
+          "meta:altId": d.altId,
+          title: d.label,
+          type: "object",
+          "meta:class": d.className,
+          "meta:extends": d.extends ?? [],
+        } as AepSchema;
+      });
+  }
+
+  // Extracts dataset IDs from existing graph nodes so fetchUpdate can build
+  // flow→dataset edges without re-fetching datasets from the API.
+  function contextDatasetIdsFromNodes(nodes: Node[]): string[] {
+    return nodes
+      .filter((n) => (n.data as { entityType?: string })?.entityType === "dataset")
+      .map((n) => (n.data as DatasetNodeData).datasetId);
+  }
+
+  // Fetches only the newly requested entity types and merges them into the
+  // existing graph without replacing it.
+  const fetchUpdate = useCallback(
+    async (config: AepConnectionConfig, newOpts: FetchOptions) => {
+      const contextNodes = useCanvasStore.getState().rawNodes;
+      const contextSchemas = contextSchemasFromNodes(contextNodes);
+      const contextDatasetIds = contextDatasetIdsFromNodes(contextNodes);
+
+      setLoading(true);
+      setError(null);
+
+      // Build a minimal progress list covering only what we're about to fetch
+      const updateSteps: ProgressStep[] = [
+        ...(newOpts.datasets    ? [{ id: "datasets",    label: "Fetching datasets",           status: "pending" as StepStatus, unit: "datasets" }]    : []),
+        ...(newOpts.schemas     ? [{ id: "descriptors", label: "Fetching descriptors",        status: "pending" as StepStatus, unit: "descriptors" }] : []),
+        ...(newOpts.schemas     ? [{ id: "schemas",     label: "Fetching schemas",            status: "pending" as StepStatus, unit: "schemas" }]      : []),
+        ...(newOpts.fieldGroups ? [{ id: "field-groups",label: "Fetching field groups",       status: "pending" as StepStatus, unit: "field groups" }] : []),
+        ...(newOpts.flows       ? [{ id: "flows",       label: "Fetching flows & connections",status: "pending" as StepStatus, unit: "flows" }]        : []),
+        { id: "transform", label: "Merging into graph", status: "pending" as StepStatus },
+      ];
+      setProgress(updateSteps);
+
+      const errors: string[] = [];
+      let newDatasets:    AepDataset[]   = [];
+      let newDescriptors: AepDescriptor[] = [];
+      let newSchemas:     AepSchema[]    = [];
+      let newFieldGroups: AepFieldGroup[] = [];
+
+      // Flows fire immediately — independent of everything else
+      let flowsPromise = Promise.resolve({ flows: [] as AepFlow[], connections: [] as AepConnection[] });
+      if (newOpts.flows) {
+        updateStep("flows", "active");
+        flowsPromise = fetchFlows(config)
+          .then((r) => { updateStep("flows", "done", r.flows.length); return r; })
+          .catch((err: Error) => {
+            errors.push(err.message);
+            updateStep("flows", "done", 0);
+            return { flows: [] as AepFlow[], connections: [] as AepConnection[] };
+          });
+      }
+
+      // Datasets
+      if (newOpts.datasets) {
+        updateStep("datasets", "active");
+        newDatasets = await fetchDatasets(config)
+          .then((r) => { updateStep("datasets", "done", r.length); return r; })
+          .catch((err: Error) => { errors.push(err.message); return []; });
+      }
+
+      // Schemas (need descriptors first to collect schema IDs)
+      if (newOpts.schemas) {
+        updateStep("descriptors", "active");
+        newDescriptors = await fetchDescriptors(config)
+          .then((r) => { updateStep("descriptors", "done", r.length); return r; })
+          .catch(() => []);
+
+        const allSchemaIds = Array.from((() => {
+          const ids = new Set<string>();
+          schemaIdsFromDatasets(newDatasets).forEach((id) => ids.add(id));
+          schemaIdsFromDescriptors(newDescriptors).forEach((id) => ids.add(id));
+          return ids;
+        })());
+
+        updateStep("schemas", "active", 0, allSchemaIds.length);
+        newSchemas = await fetchSchemasByIds(allSchemaIds, config, (resolved, total) => {
+          updateStep("schemas", "active", resolved, total);
+        }).catch((err: Error) => { errors.push(err.message); return []; });
+        updateStep("schemas", "done", newSchemas.length);
+      }
+
+      // Field groups — use newly fetched schemas + existing schema context for ref collection
+      if (newOpts.fieldGroups) {
+        updateStep("field-groups", "active");
+        const schemasForRefs = newSchemas.length > 0
+          ? [...contextSchemas, ...newSchemas]
+          : contextSchemas;
+        const fgRefs = collectFieldGroupRefs(schemasForRefs);
+        newFieldGroups = await fetchFieldGroupsByRefs(fgRefs, config)
+          .then((r) => { updateStep("field-groups", "done", r.length); return r; })
+          .catch((err: Error) => { errors.push(err.message); return []; });
+      }
+
+      const flowResult = await flowsPromise;
+
+      if (errors.length > 0) setError(errors.join("\n\n"));
+
+      updateStep("transform", "active");
+      try {
+        // For schema→fieldgroup edges: pass context schemas so edges are created;
+        // those schema nodes already exist in the graph and will be deduped by mergeGraph.
+        const schemasForTransform = newOpts.fieldGroups && !newOpts.schemas
+          ? contextSchemas
+          : newSchemas;
+
+        // For flow→dataset edges: pass synthetic dataset objects built from existing
+        // dataset node IDs so connections resolve; those dataset nodes are deduped by mergeGraph.
+        const datasetsForTransform: AepDataset[] = newOpts.flows
+          ? [
+              ...newDatasets,
+              ...contextDatasetIds
+                .filter((id) => !newDatasets.some((d) => d.id === id))
+                .map((id) => ({ id, name: id, created: 0, updated: 0 } as AepDataset)),
+            ]
+          : newDatasets;
+
+        const { nodes: newNodes, edges: newEdges } = transformToGraph({
+          datasets: datasetsForTransform,
+          schemas: schemasForTransform,
+          fieldGroups: newFieldGroups,
+          flows: flowResult.flows,
+          connections: flowResult.connections,
+          descriptors: newDescriptors,
+          schemaFieldsMap: undefined,
+        });
+
+        updateStep("transform", "done", newNodes.length);
+        mergeGraph(newNodes, newEdges);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to merge graph update");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchDatasets, fetchDescriptors, fetchSchemasByIds, fetchFieldGroupsByRefs, fetchFlows, updateStep, mergeGraph] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   const loadMockData = useCallback((input: TransformInput) => {
     const { nodes, edges } = transformToGraph(input);
     setGraph(nodes, edges);
   }, [setGraph]);
 
-  return { loading, error, progress, fetchAll, loadMockData };
+  return { loading, error, progress, fetchAll, fetchUpdate, loadMockData };
 }
