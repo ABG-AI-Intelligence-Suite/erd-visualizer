@@ -23,13 +23,17 @@ export function useFlows() {
     try {
       const headers = proxyHeaders(config);
 
-      const [flowList, connectionList, targetConnectionList, specItems] = await Promise.all([
+      const [flowList, connectionList, sourceConnectionList, targetConnectionList, specItems] = await Promise.all([
         paginateFlowService<AepFlow>({
           url: "/api/aep/flowservice/flows?limit=200&property=state%3D%3Denabled",
           headers,
         }),
         paginateFlowService<AepConnection>({
           url: "/api/aep/flowservice/connections?limit=200",
+          headers,
+        }).catch(() => [] as AepConnection[]),
+        paginateFlowService<AepConnection>({
+          url: "/api/aep/flowservice/sourceConnections?limit=200",
           headers,
         }).catch(() => [] as AepConnection[]),
         paginateFlowService<AepConnection>({
@@ -44,6 +48,7 @@ export function useFlows() {
       ]);
 
       const mergedConnections = new Map(connectionList.map((c) => [c.id, c]));
+      sourceConnectionList.forEach((sc) => mergedConnections.set(sc.id, sc));
       targetConnectionList.forEach((tc) => mergedConnections.set(tc.id, tc));
       const allConnections = Array.from(mergedConnections.values());
 

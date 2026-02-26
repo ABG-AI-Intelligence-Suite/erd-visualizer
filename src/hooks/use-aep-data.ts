@@ -163,7 +163,7 @@ export function useAepData() {
       const errors: string[] = [];
 
       // Flows (optional)
-      let flowsPromise: Promise<{ flows: AepFlow[]; connections: AepConnection[] }>;
+      let flowsPromise: Promise<{ flows: AepFlow[]; connections: AepConnection[]; connectionSpecMap?: Map<string, string> }>;
       if (opts.flows) {
         updateStep("flows", "active");
         flowsPromise = fetchFlows(config)
@@ -346,7 +346,7 @@ export function useAepData() {
       let newFieldGroups: AepFieldGroup[] = [];
 
       // Flows fire immediately — independent of everything else
-      let flowsPromise = Promise.resolve({ flows: [] as AepFlow[], connections: [] as AepConnection[] });
+      let flowsPromise: Promise<{ flows: AepFlow[]; connections: AepConnection[]; connectionSpecMap?: Map<string, string> }> = Promise.resolve({ flows: [] as AepFlow[], connections: [] as AepConnection[] });
       if (newOpts.flows) {
         updateStep("flows", "active");
         flowsPromise = fetchFlows(config)
