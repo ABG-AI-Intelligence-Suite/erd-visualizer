@@ -6,8 +6,22 @@ import { Badge } from "@/components/ui/badge";
 import type { FlowNodeData } from "@/lib/types";
 import { NodeCard } from "./node-card";
 
+// Derive a short connector name from the connection name string when sourceType
+// isn't stored (older snapshots / already-loaded graphs).
+function sourceTypeFromName(name: string): string {
+  return (
+    name
+      .replace(/\s+(base|source|target)?\s*connection\b.*/i, "")
+      .replace(/\s*[-–]\s*.+$/, "")
+      .trim() || name
+  );
+}
+
 function FlowNodeComponent({ id, data }: NodeProps) {
   const d = data as unknown as FlowNodeData;
+  const sourceType = d.sourceType || (d.sourceSummary && d.sourceSummary !== "N/A"
+    ? sourceTypeFromName(d.sourceSummary)
+    : undefined);
 
   return (
     <NodeCard
@@ -17,12 +31,12 @@ function FlowNodeComponent({ id, data }: NodeProps) {
       width="w-64"
       headerBadges={
         <>
-          {d.sourceType && (
+          {sourceType && (
             <Badge
               variant="secondary"
               className="text-[9px] px-1 py-0 h-4 border-0 bg-white/20 text-white"
             >
-              {d.sourceType}
+              {sourceType}
             </Badge>
           )}
           <Badge

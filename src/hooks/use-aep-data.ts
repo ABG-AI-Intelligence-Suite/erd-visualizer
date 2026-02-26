@@ -281,6 +281,7 @@ export function useAepData() {
           connections: Array.from(connMap.values()),
           descriptors,
           schemaFieldsMap,
+          connectionSpecMap: flowResult.connectionSpecMap,
         });
         setGraph(nodes, edges);
       } catch (err) {
@@ -429,6 +430,7 @@ export function useAepData() {
           connections: flowResult.connections,
           descriptors: newDescriptors,
           schemaFieldsMap: undefined,
+          connectionSpecMap: flowResult.connectionSpecMap,
         });
 
         updateStep("transform", "done", newNodes.length);

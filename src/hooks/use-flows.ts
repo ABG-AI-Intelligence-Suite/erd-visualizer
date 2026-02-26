@@ -23,7 +23,7 @@ export function useFlows() {
     try {
       const headers = proxyHeaders(config);
 
-      const [flowList, connectionList, targetConnectionList] = await Promise.all([
+      const [flowList, connectionList, targetConnectionList, specItems] = await Promise.all([
         paginateFlowService<AepFlow>({
           url: "/api/aep/flowservice/flows?limit=200&property=state%3D%3Denabled",
           headers,
@@ -36,16 +36,25 @@ export function useFlows() {
           url: "/api/aep/flowservice/targetConnections?limit=200",
           headers,
         }).catch(() => [] as AepConnection[]),
+        // Fetch all connection specs to resolve spec IDs → display names
+        fetch("/api/aep/flowservice/connectionSpecs?limit=200", { headers })
+          .then((r) => r.json())
+          .then((r) => (r.items ?? r.connectionSpecs ?? []) as { id: string; name: string }[])
+          .catch(() => [] as { id: string; name: string }[]),
       ]);
 
       const mergedConnections = new Map(connectionList.map((c) => [c.id, c]));
       targetConnectionList.forEach((tc) => mergedConnections.set(tc.id, tc));
       const allConnections = Array.from(mergedConnections.values());
 
+      const connectionSpecMap = new Map<string, string>(
+        specItems.map((s) => [s.id, s.name])
+      );
+
       setFlows(flowList);
       setConnections(allConnections);
 
-      return { flows: flowList, connections: allConnections };
+      return { flows: flowList, connections: allConnections, connectionSpecMap };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch flows";
       setError(msg);

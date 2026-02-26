@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useExport, type ExportFormat } from "@/hooks/use-export";
-import { useMiroExport } from "@/hooks/use-miro-export";
+import { useMiroExport, type MiroProgressEvent } from "@/hooks/use-miro-export";
 
 export function ExportDialog() {
   const open    = useCanvasStore((s) => s.exportDialogOpen);
@@ -46,26 +46,44 @@ export function ExportDialog() {
 
   // ── Miro tab ───────────────────────────────────────────────────────────────
   const { exportToMiro, nodeCount, edgeCount } = useMiroExport();
-  const [miroToken,   setMiroToken]   = useState("");
-  const [miroBoardId, setMiroBoardId] = useState("");
+  const [miroToken,     setMiroToken]     = useState("");
+  const [miroBoardId,   setMiroBoardId]   = useState("");
   const [miroBoardName, setMiroBoardName] = useState("");
-  const [miroLoading, setMiroLoading] = useState(false);
-  const [miroError,   setMiroError]   = useState<string | null>(null);
-  const [miroResult,  setMiroResult]  = useState<{ boardId: string; boardUrl: string } | null>(null);
+  const [miroLoading,   setMiroLoading]   = useState(false);
+  const [miroError,     setMiroError]     = useState<string | null>(null);
+  const [miroResult,    setMiroResult]    = useState<{ boardId: string; boardUrl: string } | null>(null);
+  const [miroLog,       setMiroLog]       = useState<string>("");
+  const [miroProgress,  setMiroProgress]  = useState<{ current: number; total: number } | null>(null);
 
-  const estimatedSeconds = Math.ceil((nodeCount + edgeCount) * 0.072) + 5;
+  const totalItems = nodeCount + edgeCount;
 
   const handleExportMiro = async () => {
     setMiroLoading(true);
     setMiroError(null);
     setMiroResult(null);
+    setMiroLog("");
+    setMiroProgress(null);
+
     try {
       const result = await exportToMiro(
         miroToken.trim(),
         miroBoardId.trim() || undefined,
-        miroBoardName.trim() || undefined
+        miroBoardName.trim() || undefined,
+        (event: MiroProgressEvent) => {
+          if (event.type === "step") {
+            setMiroLog(event.message);
+          } else if (event.type === "shapes") {
+            setMiroLog(`Creating shapes… ${event.current}/${event.total}`);
+            setMiroProgress({ current: event.current, total: event.total + edgeCount });
+          } else if (event.type === "connectors") {
+            setMiroLog(`Creating connectors… ${event.current}/${event.total}`);
+            setMiroProgress({ current: nodeCount + event.current, total: totalItems });
+          }
+        }
       );
       setMiroResult(result);
+      setMiroProgress({ current: totalItems, total: totalItems });
+      setMiroLog("Done!");
     } catch (err) {
       setMiroError(err instanceof Error ? err.message : "Miro export failed");
     } finally {
@@ -199,8 +217,24 @@ export function ExportDialog() {
             )}
 
             <p className="text-[10px] text-muted-foreground">
-              {nodeCount} nodes · {edgeCount} edges · est. ~{estimatedSeconds}s
+              {nodeCount} nodes · {edgeCount} edges
             </p>
+
+            {(miroLoading || miroProgress) && (
+              <div className="space-y-1.5">
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-300"
+                    style={{
+                      width: miroProgress
+                        ? `${Math.round((miroProgress.current / miroProgress.total) * 100)}%`
+                        : "4%",
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">{miroLog}</p>
+              </div>
+            )}
 
             {miroError && (
               <p className="text-xs text-destructive break-words">{miroError}</p>

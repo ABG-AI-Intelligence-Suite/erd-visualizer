@@ -25,41 +25,17 @@ function columnPosition(col: number, row: number) {
 
 const NS_PREFIX = "https://ns.adobe.com/";
 
-// Well-known AEP source connector spec IDs → display names.
-// Covers the most common batch and streaming sources.
-const CONNECTOR_SPEC_NAMES: Record<string, string> = {
-  "cfc0fee1-7dc0-40ef-b73e-d8b134c436f5": "Salesforce",
-  "51ae16c2-bdad-42fd-9fce-8d5dfddaf140": "Snowflake",
-  "ecadc60c-7455-4d87-84dc-2a0e293d997b": "Amazon S3",
-  "b3ba5556-48be-44b7-8b85-ff2b69b46dc5": "Azure Blob",
-  "26d74102-c690-462d-b546-351613a78ba5": "Azure ADLS Gen2",
-  "32e8f412-cdf7-464c-9885-78184cb113fd": "Google Cloud Storage",
-  "3c9b37f8-13a6-43d8-bad3-b863b941fedd": "Azure Synapse",
-  "aa8e8b21-f80f-46ce-a897-d33b4804cca0": "Google BigQuery",
-  "d771e9c1-4f26-40dc-8617-ce58c4b53702": "Adobe Analytics",
-  "42a8ce5d-9a6f-4d31-bef4-05f97c76de87": "Marketo",
-  "784d7b26-0bca-4bef-b5ea-c8082b6e97d4": "SFTP",
-  "bf9f5905-92b7-48bf-bf20-455bc6b60a4e": "Amazon Kinesis",
-  "86043421-563b-46ec-8e6c-e23184711bf6": "Azure Event Hubs",
-  "bc7b00d6-623a-4dfc-9fdb-f1240aeadaeb": "HTTP API",
-  "c604ff05-7f1a-43c0-8e18-33bf874cb11c": "AEP Data Lake",
-  "2d31dfd1-df1a-456b-948f-226e040ba102": "Salesforce Service Cloud",
-  "20283d08-d010-4ef5-aea9-41c14612bcc7": "Microsoft Dynamics",
-  "38ad80fe-8b06-4938-94f4-d4ee80266b07": "SAP HANA",
-  "48e7a7a7-5e7a-4a37-9b3c-d3c3e72a9c7d": "Oracle",
-};
-
-function deriveConnectorName(conn: AepConnection): string {
+function deriveConnectorName(conn: AepConnection, specNameMap: Map<string, string>): string {
   if (conn.connectionSpec?.id) {
-    const known = CONNECTOR_SPEC_NAMES[conn.connectionSpec.id];
-    if (known) return known;
+    const specName = specNameMap.get(conn.connectionSpec.id);
+    if (specName) return specName;
   }
   // Fall back: strip common boilerplate suffixes from the connection name
   const name = conn.name ?? "";
   return (
     name
       .replace(/\s+(base|source|target)?\s*connection\b.*/i, "")
-      .replace(/\s*[-–]\s*\S.*$/, "") // strip "- production", "– prod" etc.
+      .replace(/\s*[-–]\s*\S.*$/, "")
       .trim() || name
   );
 }
@@ -267,7 +243,8 @@ function buildFieldGroupNodes(
 
 function buildFlowNodes(
   flows: AepFlow[],
-  connectionMap: Map<string, AepConnection>
+  connectionMap: Map<string, AepConnection>,
+  specNameMap: Map<string, string>
 ): Node<FlowNodeData>[] {
   return flows.map((f, i) => {
     const sourceConns = f.sourceConnectionIds?.map((id) => connectionMap.get(id)).filter(Boolean) as AepConnection[];
@@ -280,7 +257,7 @@ function buildFlowNodes(
         .join(", ") ?? "N/A";
 
     // Derive the connector platform name (e.g. "Snowflake") from the first source connection
-    const sourceType = sourceConns.length ? deriveConnectorName(sourceConns[0]) : undefined;
+    const sourceType = sourceConns.length ? deriveConnectorName(sourceConns[0], specNameMap) : undefined;
 
     return {
       id: `flow-${f.id}`,
@@ -481,10 +458,11 @@ export interface TransformInput {
   connections: AepConnection[];
   descriptors: AepDescriptor[];
   schemaFieldsMap?: Map<string, ErdField[]>;
+  connectionSpecMap?: Map<string, string>; // specId → connector display name
 }
 
 export function transformToGraph(input: TransformInput) {
-  const { datasets, schemas, fieldGroups, flows, connections, descriptors, schemaFieldsMap } = input;
+  const { datasets, schemas, fieldGroups, flows, connections, descriptors, schemaFieldsMap, connectionSpecMap } = input;
 
   const pkMap = buildIdentityMap(descriptors);
   const connectionMap = new Map(connections.map((c) => [c.id, c]));
@@ -500,7 +478,7 @@ export function transformToGraph(input: TransformInput) {
     ...buildDatasetNodes(datasets, pkMap, schemaIdLookup, schemaFieldsMap),
     ...buildSchemaNodes(schemas, pkMap, schemaFieldsMap),
     ...buildFieldGroupNodes(fieldGroups),
-    ...buildFlowNodes(flows, connectionMap),
+    ...buildFlowNodes(flows, connectionMap, connectionSpecMap ?? new Map()),
   ];
 
   const nodeIds = new Set(nodes.map((n) => n.id));
