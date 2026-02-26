@@ -1,4 +1,5 @@
 import { useCanvasStore } from "@/store/canvas-store";
+import type { Node, Edge } from "@xyflow/react";
 import type { MiroProgressEvent } from "@/app/api/miro/export/route";
 
 export type { MiroProgressEvent };
@@ -11,8 +12,12 @@ export function useMiroExport() {
     miroToken: string,
     boardId?: string,
     boardName?: string,
-    onProgress?: (event: MiroProgressEvent) => void
+    onProgress?: (event: MiroProgressEvent) => void,
+    options?: { nodes?: Node[]; edges?: Edge[] }
   ): Promise<{ boardId: string; boardUrl: string }> {
+    const nodes = options?.nodes ?? rawNodes;
+    const edges = options?.edges ?? rawEdges;
+
     const res = await fetch("/api/miro/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -20,8 +25,8 @@ export function useMiroExport() {
         miroToken,
         boardId: boardId || undefined,
         boardName,
-        nodes: rawNodes,
-        edges: rawEdges,
+        nodes,
+        edges,
       }),
     });
 
@@ -61,5 +66,5 @@ export function useMiroExport() {
     return result;
   }
 
-  return { exportToMiro, nodeCount: rawNodes.length, edgeCount: rawEdges.length };
+  return { exportToMiro, rawNodes, rawEdges };
 }

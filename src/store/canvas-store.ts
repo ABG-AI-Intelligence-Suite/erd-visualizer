@@ -67,6 +67,14 @@ interface CanvasStore {
 
   activeSnapshotLabel: string | null;
   setActiveSnapshotLabel: (label: string | null) => void;
+
+  miroExportList: string[];
+  addToMiroExport: (id: string) => void;
+  removeFromMiroExport: (id: string) => void;
+  clearMiroExport: () => void;
+
+  miroToast: string | null;
+  setMiroToast: (msg: string | null) => void;
 }
 
 export const useCanvasStore = create<CanvasStore>((set) => ({
@@ -185,4 +193,18 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
 
   activeSnapshotLabel: null,
   setActiveSnapshotLabel: (label) => set({ activeSnapshotLabel: label }),
+
+  miroExportList: [],
+  addToMiroExport: (id) =>
+    set((s) => ({
+      miroExportList: s.miroExportList.includes(id)
+        ? s.miroExportList
+        : [...s.miroExportList, id],
+    })),
+  removeFromMiroExport: (id) =>
+    set((s) => ({ miroExportList: s.miroExportList.filter((i) => i !== id) })),
+  clearMiroExport: () => set({ miroExportList: [] }),
+
+  miroToast: null,
+  setMiroToast: (msg) => set({ miroToast: msg }),
 }));

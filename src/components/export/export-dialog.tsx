@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Download, Loader2, ExternalLink } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Download, Loader2, ExternalLink, X, Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,10 +18,56 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useExport, type ExportFormat } from "@/hooks/use-export";
 import { useMiroExport, type MiroProgressEvent } from "@/hooks/use-miro-export";
+import type { Node, Edge } from "@xyflow/react";
+
+const ENTITY_COLORS: Record<string, string> = {
+  dataset:    "bg-blue-100 text-blue-700",
+  schema:     "bg-violet-100 text-violet-700",
+  fieldGroup: "bg-green-100 text-green-700",
+  flow:       "bg-orange-100 text-orange-700",
+  identity:   "bg-sky-100 text-sky-700",
+};
+
+const ENTITY_LABELS: Record<string, string> = {
+  dataset:    "Dataset",
+  schema:     "Schema",
+  fieldGroup: "Field Group",
+  flow:       "Flow",
+  identity:   "Identity",
+};
+
+// BFS from seed node IDs, following edges in both directions
+function expandConnectedGraph(nodeIds: string[], rawNodes: Node[], rawEdges: Edge[]) {
+  const visited = new Set<string>(nodeIds);
+  const queue   = [...nodeIds];
+
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const edge of rawEdges) {
+      if (edge.source === id && !visited.has(edge.target)) {
+        visited.add(edge.target);
+        queue.push(edge.target);
+      }
+      if (edge.target === id && !visited.has(edge.source)) {
+        visited.add(edge.source);
+        queue.push(edge.source);
+      }
+    }
+  }
+
+  return {
+    nodes: rawNodes.filter((n) => visited.has(n.id)),
+    edges: rawEdges.filter((e) => visited.has(e.source) && visited.has(e.target)),
+  };
+}
 
 export function ExportDialog() {
   const open    = useCanvasStore((s) => s.exportDialogOpen);
   const setOpen = useCanvasStore((s) => s.setExportDialogOpen);
+
+  const miroExportList      = useCanvasStore((s) => s.miroExportList);
+  const removeFromMiroExport = useCanvasStore((s) => s.removeFromMiroExport);
+  const clearMiroExport     = useCanvasStore((s) => s.clearMiroExport);
 
   // ── Image tab ──────────────────────────────────────────────────────────────
   const { exportImage } = useExport();
@@ -45,7 +91,7 @@ export function ExportDialog() {
   };
 
   // ── Miro tab ───────────────────────────────────────────────────────────────
-  const { exportToMiro, nodeCount, edgeCount } = useMiroExport();
+  const { exportToMiro, rawNodes, rawEdges } = useMiroExport();
   const [miroToken,     setMiroToken]     = useState("");
   const [miroBoardId,   setMiroBoardId]   = useState("");
   const [miroBoardName, setMiroBoardName] = useState("");
@@ -55,9 +101,24 @@ export function ExportDialog() {
   const [miroLog,       setMiroLog]       = useState<string>("");
   const [miroProgress,  setMiroProgress]  = useState<{ current: number; total: number } | null>(null);
 
-  const totalItems = nodeCount + edgeCount;
+  // Node lookup for displaying queued items
+  const nodeMap = useMemo(
+    () => new Map(rawNodes.map((n) => [n.id, n])),
+    [rawNodes]
+  );
 
-  const handleExportMiro = async () => {
+  // Full connected subgraph from all queued nodes
+  const { nodes: queuedExportNodes, edges: queuedExportEdges } = useMemo(
+    () =>
+      miroExportList.length > 0
+        ? expandConnectedGraph(miroExportList, rawNodes, rawEdges)
+        : { nodes: [], edges: [] },
+    [miroExportList, rawNodes, rawEdges]
+  );
+
+  const handleExportMiro = async (nodes: Node[], edges: Edge[]) => {
+    const nCount = nodes.length;
+    const eCount = edges.length;
     setMiroLoading(true);
     setMiroError(null);
     setMiroResult(null);
@@ -74,15 +135,16 @@ export function ExportDialog() {
             setMiroLog(event.message);
           } else if (event.type === "shapes") {
             setMiroLog(`Creating shapes… ${event.current}/${event.total}`);
-            setMiroProgress({ current: event.current, total: event.total + edgeCount });
+            setMiroProgress({ current: event.current, total: event.total + eCount });
           } else if (event.type === "connectors") {
             setMiroLog(`Creating connectors… ${event.current}/${event.total}`);
-            setMiroProgress({ current: nodeCount + event.current, total: totalItems });
+            setMiroProgress({ current: nCount + event.current, total: nCount + eCount });
           }
-        }
+        },
+        { nodes, edges }
       );
       setMiroResult(result);
-      setMiroProgress({ current: totalItems, total: totalItems });
+      setMiroProgress({ current: nCount + eCount, total: nCount + eCount });
       setMiroLog("Done!");
     } catch (err) {
       setMiroError(err instanceof Error ? err.message : "Miro export failed");
@@ -107,7 +169,14 @@ export function ExportDialog() {
         <Tabs defaultValue="image">
           <TabsList className="w-full">
             <TabsTrigger value="image" className="flex-1 text-xs">Image</TabsTrigger>
-            <TabsTrigger value="miro"  className="flex-1 text-xs">Miro Board</TabsTrigger>
+            <TabsTrigger value="miro"  className="flex-1 text-xs">
+              Miro Board
+              {miroExportList.length > 0 && (
+                <span className="ml-1.5 bg-primary text-primary-foreground text-[9px] rounded-full px-1.5 py-0.5 font-medium">
+                  {miroExportList.length}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           {/* ── Image ──────────────────────────────────────────────────────── */}
@@ -216,9 +285,66 @@ export function ExportDialog() {
               </div>
             )}
 
-            <p className="text-[10px] text-muted-foreground">
-              {nodeCount} nodes · {edgeCount} edges
-            </p>
+            {/* ── Export queue ────────────────────────────────────────────── */}
+            {miroExportList.length === 0 ? (
+              <div className="rounded-md border border-dashed px-4 py-5 text-center">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Click{" "}
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-muted mx-0.5 align-middle">
+                    <Plus className="h-2.5 w-2.5" />
+                  </span>{" "}
+                  on any node to add it to the export queue.
+                  <br />
+                  The full connected graph is exported automatically.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">
+                    {miroExportList.length} node{miroExportList.length !== 1 ? "s" : ""} queued
+                  </Label>
+                  <button
+                    type="button"
+                    onClick={clearMiroExport}
+                    className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    Clear all
+                  </button>
+                </div>
+
+                <div className="overflow-y-auto max-h-32 rounded-md border divide-y">
+                  {miroExportList.map((nodeId) => {
+                    const node = nodeMap.get(nodeId);
+                    const d = (node?.data ?? {}) as { label?: string; entityType?: string };
+                    const entityType = d.entityType ?? "unknown";
+                    return (
+                      <div key={nodeId} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                        <span
+                          className={`shrink-0 text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                            ENTITY_COLORS[entityType] ?? "bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          {ENTITY_LABELS[entityType] ?? entityType}
+                        </span>
+                        <span className="truncate flex-1 text-foreground">{d.label ?? nodeId}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFromMiroExport(nodeId)}
+                          className="shrink-0 text-muted-foreground/50 hover:text-destructive transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className="text-[10px] text-muted-foreground">
+                  Expands to {queuedExportNodes.length} nodes · {queuedExportEdges.length} edges
+                </p>
+              </div>
+            )}
 
             {(miroLoading || miroProgress) && (
               <div className="space-y-1.5">
@@ -254,18 +380,27 @@ export function ExportDialog() {
               </div>
             )}
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>
+            <DialogFooter className="sm:justify-between gap-2">
+              <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
                 {miroResult ? "Close" : "Cancel"}
               </Button>
-              <Button
-                onClick={handleExportMiro}
-                disabled={miroLoading || !miroToken.trim() || !nodeCount}
-              >
-                {miroLoading
-                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Exporting…</>
-                  : "Export to Miro"}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleExportMiro(rawNodes, rawEdges)}
+                  disabled={miroLoading || !miroToken.trim() || !rawNodes.length}
+                >
+                  Full Canvas
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleExportMiro(queuedExportNodes, queuedExportEdges)}
+                  disabled={miroLoading || !miroToken.trim() || miroExportList.length === 0}
+                >
+                  Export Queued ({miroExportList.length})
+                </Button>
+              </div>
             </DialogFooter>
           </TabsContent>
         </Tabs>

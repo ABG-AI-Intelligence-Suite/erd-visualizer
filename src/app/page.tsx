@@ -14,6 +14,7 @@ import { ConnectionDialog } from "@/components/toolbar/connection-form";
 import { CommandPalette } from "@/components/command-palette/command-palette";
 import { ExportDialog } from "@/components/export/export-dialog";
 import { ShortcutsDialog } from "@/components/keyboard-shortcuts/shortcuts-dialog";
+import { ExportToast } from "@/components/ui/export-toast";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useAepData } from "@/hooks/use-aep-data";
 import { useEnvAutoConnect } from "@/hooks/use-env-auto-connect";
@@ -204,6 +205,7 @@ export default function Home() {
       </ReactFlowProvider>
       <ConnectionDialog onConnect={handleConnect} onUpdate={handleUpdate} />
       <EmptyState onLoadSample={handleLoadSample} />
+      <ExportToast />
       <LoadingOverlay loading={loading} progress={progress} />
       <ErrorBanner fetchError={fetchError} />
     </div>

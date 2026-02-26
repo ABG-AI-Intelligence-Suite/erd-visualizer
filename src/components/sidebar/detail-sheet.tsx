@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { X, Pin, PinOff, Focus, Crosshair } from "lucide-react";
+import { X, Plus, Check, Focus, Crosshair } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +43,10 @@ export function DetailSheet({ selectedNode, nodes, edges }: DetailSheetProps) {
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
   const detailPanelPinned = useCanvasStore((s) => s.detailPanelPinned);
-  const toggleDetailPanelPinned = useCanvasStore((s) => s.toggleDetailPanelPinned);
+  const miroExportList       = useCanvasStore((s) => s.miroExportList);
+  const addToMiroExport      = useCanvasStore((s) => s.addToMiroExport);
+  const removeFromMiroExport = useCanvasStore((s) => s.removeFromMiroExport);
+  const setMiroToast         = useCanvasStore((s) => s.setMiroToast);
 
   const isOpen = Boolean(selectedNode);
   const data = selectedNode?.data as unknown as ErdNodeData | undefined;
@@ -88,19 +91,36 @@ export function DetailSheet({ selectedNode, nodes, edges }: DetailSheetProps) {
                   </Badge>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={toggleDetailPanelPinned}
-                      >
-                        {detailPanelPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{detailPanelPinned ? "Unpin panel" : "Pin panel open"}</TooltipContent>
-                  </Tooltip>
+                  {selectedNode && (() => {
+                    const isQueued = miroExportList.includes(selectedNode.id);
+                    return (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => {
+                              if (isQueued) {
+                                removeFromMiroExport(selectedNode.id);
+                                setMiroToast("Removed from export list");
+                              } else {
+                                addToMiroExport(selectedNode.id);
+                                setMiroToast("Added to export list");
+                              }
+                            }}
+                          >
+                            {isQueued
+                              ? <Check className="h-3.5 w-3.5 text-green-500" />
+                              : <Plus className="h-3.5 w-3.5" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {isQueued ? "Remove from export list" : "Add to export list"}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })()}
                   <Button
                     variant="ghost"
                     size="icon"

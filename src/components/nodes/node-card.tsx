@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, type ReactNode } from "react";
+import { Plus, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/store/canvas-store";
 
@@ -19,6 +20,38 @@ const HEADER_COLORS: Record<string, string> = {
   flow: "bg-flow",
   identity: "bg-identity",
 };
+
+// Separate memo'd component so only this button re-renders when the export list changes
+const AddToExportButton = memo(function AddToExportButton({ nodeId }: { nodeId: string }) {
+  const isQueued        = useCanvasStore((s) => s.miroExportList.includes(nodeId));
+  const addToMiroExport = useCanvasStore((s) => s.addToMiroExport);
+  const removeFromMiroExport = useCanvasStore((s) => s.removeFromMiroExport);
+  const setMiroToast    = useCanvasStore((s) => s.setMiroToast);
+
+  const handleClick = () => {
+    if (isQueued) {
+      removeFromMiroExport(nodeId);
+      setMiroToast("Removed from export list");
+    } else {
+      addToMiroExport(nodeId);
+      setMiroToast("Added to export list");
+    }
+  };
+
+  return (
+    <button
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); handleClick(); }}
+      className={cn(
+        "rounded p-0.5 transition-colors hover:bg-white/30",
+        isQueued ? "text-green-200" : "text-white/50 hover:text-white"
+      )}
+      title={isQueued ? "Remove from Miro export" : "Add to Miro export"}
+    >
+      {isQueued ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+    </button>
+  );
+});
 
 interface NodeCardProps {
   nodeId: string;
@@ -59,7 +92,10 @@ export const NodeCard = memo(function NodeCard({
         )}
       >
         <span>{headerLabel}</span>
-        {headerBadges && <span className="flex items-center gap-1">{headerBadges}</span>}
+        <span className="flex items-center gap-1">
+          {headerBadges}
+          <AddToExportButton nodeId={nodeId} />
+        </span>
       </div>
       <div className="p-3 space-y-1">{children}</div>
       {footer}
