@@ -143,7 +143,7 @@ export function AppHeader({
         <DropdownMenuContent align="end">
           {onOpenExportDialog && (
             <DropdownMenuItem onClick={onOpenExportDialog}>
-              Export as image
+              Export
             </DropdownMenuItem>
           )}
           {onOpenShortcutsDialog && (

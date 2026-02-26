@@ -350,7 +350,7 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
                 type="button"
                 variant="destructive"
                 size="sm"
-                onClick={() => { clearConnection(); setOpen(false); }}
+                onClick={() => { clearConnection(); useCanvasStore.getState().setActiveSnapshotLabel(null); setOpen(false); }}
               >
                 Disconnect
               </Button>

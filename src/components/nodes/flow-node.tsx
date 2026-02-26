@@ -16,16 +16,26 @@ function FlowNodeComponent({ id, data }: NodeProps) {
       headerLabel="Dataflow"
       width="w-64"
       headerBadges={
-        <Badge
-          variant="secondary"
-          className={`text-[9px] px-1 py-0 h-4 border-0 ${
-            d.state === "enabled"
-              ? "bg-green-500/20 text-white"
-              : "bg-white/20 text-white"
-          }`}
-        >
-          {d.state}
-        </Badge>
+        <>
+          {d.sourceType && (
+            <Badge
+              variant="secondary"
+              className="text-[9px] px-1 py-0 h-4 border-0 bg-white/20 text-white"
+            >
+              {d.sourceType}
+            </Badge>
+          )}
+          <Badge
+            variant="secondary"
+            className={`text-[9px] px-1 py-0 h-4 border-0 ${
+              d.state === "enabled"
+                ? "bg-green-500/20 text-white"
+                : "bg-white/20 text-white"
+            }`}
+          >
+            {d.state}
+          </Badge>
+        </>
       }
     >
       <p className="font-semibold text-sm text-foreground truncate">{d.label}</p>

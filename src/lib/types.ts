@@ -179,6 +179,7 @@ export interface FlowNodeData {
   flowId: string;
   description?: string;
   state: string;
+  sourceType?: string;
   sourceSummary: string;
   targetSummary: string;
   isSystem: boolean;
