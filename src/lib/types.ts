@@ -240,6 +240,15 @@ export interface FetchOptions {
 export type EntityFilterKey = "datasets" | "schemas" | "fieldGroups" | "flows";
 export type ViewMode = "full" | "schema";
 
+export interface CredentialProfile {
+  id: string;
+  name: string;
+  orgId: string;
+  apiKey: string;
+  sandbox: string;
+  createdAt: string;
+}
+
 export interface FilterState {
   datasets: boolean;
   schemas: boolean;

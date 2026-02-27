@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plug, Loader2, History, ChevronDown, ChevronRight } from "lucide-react";
+import { Plug, Loader2, History, ChevronDown, ChevronRight, BookUser, Trash2, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useCanvasStore } from "@/store/canvas-store";
 import { useSnapshots, type SnapshotMeta } from "@/hooks/use-snapshots";
+import { useCredentialProfiles } from "@/hooks/use-credential-profiles";
 import type { AepConnectionConfig, FetchOptions } from "@/lib/types";
 
 interface ConnectionDialogProps {
@@ -57,8 +58,8 @@ function groupByHash(snapshots: SnapshotMeta[]) {
     list.push(s);
     groups.set(s.sandboxHash, list);
   }
-  for (const list of groups.values()) {
-    list.sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
+  for (const list of Array.from(groups.values())) {
+    list.sort((a: SnapshotMeta, b: SnapshotMeta) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
   }
   return groups;
 }
@@ -96,6 +97,17 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
   const [apiKey,        setApiKey]        = useState("");
   const [snapshotLabel, setSnapshotLabel] = useState("");
 
+  // Token generation
+  const [clientSecret,    setClientSecret]    = useState("");
+  const [generatingToken, setGeneratingToken] = useState(false);
+  const [tokenError,      setTokenError]      = useState<string | null>(null);
+
+  // Profiles
+  const { profiles, addProfile, deleteProfile } = useCredentialProfiles();
+  const [profilesOpen,  setProfilesOpen]  = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileName,   setProfileName]   = useState("");
+
   const [fetchDatasets,    setFetchDatasets]    = useState(true);
   const [fetchSchemas,     setFetchSchemas]     = useState(true);
   const [fetchFieldGroups, setFetchFieldGroups] = useState(true);
@@ -109,6 +121,12 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
   useEffect(() => {
     if (!open) return;
 
+    // Reset ephemeral state on open
+    setClientSecret("");
+    setTokenError(null);
+    setSavingProfile(false);
+    setProfileName("");
+
     // Initialise checkboxes to match what's already in the graph
     setFetchDatasets(loadedTypes.datasets    || !isConnected);
     setFetchSchemas(loadedTypes.schemas      || !isConnected);
@@ -119,14 +137,11 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
     setSnapshotLabel(activeSnapshotLabel ?? "");
 
     if (isConnected && connection) {
-      // Already connected (live or snapshot): use the loaded connection's values.
-      // Do NOT override with .env — the active sandbox takes priority.
       if (connection.token)   setToken(connection.token);
       if (connection.orgId)   setOrgId(connection.orgId);
       if (connection.sandbox) setSandbox(connection.sandbox);
       if (connection.apiKey)  setApiKey(connection.apiKey);
     } else {
-      // No active connection — seed from .env so the user doesn't have to type everything.
       fetch("/api/config")
         .then((r) => r.json())
         .then((cfg: AepConnectionConfig) => {
@@ -141,9 +156,51 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
     listSnapshots().then(setSnapshots).catch(() => setSnapshots([]));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Generate token from client secret ────────────────────────────────────────
+
+  const handleGenerateToken = async () => {
+    if (!clientSecret || !apiKey) return;
+    setGeneratingToken(true);
+    setTokenError(null);
+    try {
+      const res = await fetch("/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: apiKey, clientSecret }),
+      });
+      const data = await res.json() as { access_token?: string; error?: string };
+      if (!res.ok || !data.access_token) {
+        setTokenError(data.error ?? "Token generation failed");
+      } else {
+        setToken(data.access_token);
+        setClientSecret("");
+      }
+    } catch {
+      setTokenError("Could not reach token endpoint");
+    } finally {
+      setGeneratingToken(false);
+    }
+  };
+
+  // ── Profile actions ───────────────────────────────────────────────────────────
+
+  const handleLoadProfile = (profile: { orgId: string; apiKey: string; sandbox: string }) => {
+    setOrgId(profile.orgId);
+    setApiKey(profile.apiKey);
+    setSandbox(profile.sandbox);
+    setProfilesOpen(false);
+  };
+
+  const handleSaveProfile = () => {
+    const name = profileName.trim();
+    if (!name || !orgId || !apiKey) return;
+    addProfile(name, orgId, apiKey, sandbox);
+    setProfileName("");
+    setSavingProfile(false);
+  };
+
   // ── Compute what the user intends to change ─────────────────────────────────
 
-  // Types to remove: were loaded, now unchecked
   const typesToRemove: string[] = isConnected ? (
     Object.entries({
       datasets:    { loaded: loadedTypes.datasets,    checked: fetchDatasets },
@@ -155,7 +212,6 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
       .map(([key]) => ENTITY_TYPE_MAP[key])
   ) : [];
 
-  // Types to add: not loaded, now checked
   const addOpts: FetchOptions | null = isConnected ? {
     datasets:    !loadedTypes.datasets    && fetchDatasets,
     schemas:     !loadedTypes.schemas     && fetchSchemas,
@@ -166,7 +222,6 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
   const hasRemovals  = typesToRemove.length > 0;
   const hasAdditions = addOpts ? Object.values(addOpts).some(Boolean) : false;
 
-  // Credentials are only required when making API calls (i.e. additions)
   const credentialsRequired = !isConnected || hasAdditions;
   const credentialsPresent  = Boolean(token && orgId && apiKey);
 
@@ -243,7 +298,106 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Credentials — visually de-emphasised when not required */}
+
+          {/* Profiles section */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setProfilesOpen((v) => !v)}
+              className="flex w-full items-center gap-2 text-left"
+            >
+              <BookUser className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-xs font-semibold flex-1">Saved Profiles</span>
+              {profiles.length > 0 && (
+                <span className="text-[10px] text-muted-foreground mr-1">{profiles.length}</span>
+              )}
+              {profilesOpen
+                ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+            </button>
+
+            {profilesOpen && (
+              <div className="space-y-2 pl-6">
+                {profiles.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    No profiles yet. Fill in your credentials below and save them as a profile.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {profiles.map((profile) => (
+                      <div key={profile.id} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[12px] font-medium text-foreground truncate">{profile.name}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {profile.sandbox} · {profile.orgId}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[11px] px-2"
+                            onClick={() => handleLoadProfile(profile)}
+                          >
+                            Load
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => deleteProfile(profile.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Save current as profile */}
+                {!savingProfile ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[11px] w-full"
+                    disabled={!orgId || !apiKey}
+                    onClick={() => setSavingProfile(true)}
+                  >
+                    Save current as profile
+                  </Button>
+                ) : (
+                  <div className="flex gap-1.5">
+                    <Input
+                      autoFocus
+                      type="text"
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSaveProfile(); } if (e.key === "Escape") setSavingProfile(false); }}
+                      placeholder="Profile name (e.g. Prod, Dev)"
+                      className="h-7 text-xs"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 w-7 p-0 shrink-0"
+                      disabled={!profileName.trim()}
+                      onClick={handleSaveProfile}
+                    >
+                      <Check className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Credentials */}
           <div className={`space-y-3 ${isConnected && !hasAdditions ? "opacity-50" : ""}`}>
             <div className="space-y-2">
               <Label htmlFor="token" className="text-xs">
@@ -257,9 +411,43 @@ export function ConnectionDialog({ onConnect, onUpdate }: ConnectionDialogProps)
                 type="password"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="ey..."
+                placeholder="ey…"
               />
             </div>
+
+            {/* Client Secret + Generate Token */}
+            <div className="space-y-1.5">
+              <Label htmlFor="clientSecret" className="text-xs">
+                Client Secret
+                <span className="ml-1 font-normal text-muted-foreground">(to generate a token)</span>
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="clientSecret"
+                  type="password"
+                  value={clientSecret}
+                  onChange={(e) => { setClientSecret(e.target.value); setTokenError(null); }}
+                  placeholder="p8e-…"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!clientSecret || !apiKey || generatingToken}
+                  onClick={handleGenerateToken}
+                  className="shrink-0"
+                >
+                  {generatingToken
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : "Generate"}
+                </Button>
+              </div>
+              {tokenError && (
+                <p className="text-[11px] text-destructive">{tokenError}</p>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="orgId" className="text-xs">Org ID</Label>
               <Input
