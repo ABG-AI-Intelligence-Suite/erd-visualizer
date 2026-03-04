@@ -65,6 +65,11 @@ export const FieldList = memo(function FieldList({ nodeId, fields, accentColor }
                   FK
                 </Badge>
               )}
+              {field.isFacCandidate && (
+                <Badge className="bg-rose-500 text-white text-[8px] px-1 py-0 h-3.5 shrink-0">
+                  FAC
+                </Badge>
+              )}
               <span className="font-mono text-foreground truncate" title={field.path}>
                 {field.name}
               </span>

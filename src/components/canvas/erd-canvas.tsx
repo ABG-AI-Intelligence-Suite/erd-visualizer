@@ -51,7 +51,6 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
-  const viewMode = useCanvasStore((s) => s.viewMode);
   const { setCenter, fitView } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>(externalNodes);
 
@@ -102,15 +101,14 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
 
   const onPaneClick = useCallback(() => {
     if (!detailPanelPinned) setSelectedNode(null);
-    if (viewMode === "schema" && focusNodeId) setFocusNode(null);
-  }, [setSelectedNode, setFocusNode, viewMode, focusNodeId, detailPanelPinned]);
+    if (focusNodeId) setFocusNode(null);
+  }, [setSelectedNode, setFocusNode, focusNodeId, detailPanelPinned]);
 
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      if (viewMode !== "schema") return;
       setFocusNode(focusNodeId === node.id ? null : node.id);
     },
-    [viewMode, focusNodeId, setFocusNode],
+    [focusNodeId, setFocusNode],
   );
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {

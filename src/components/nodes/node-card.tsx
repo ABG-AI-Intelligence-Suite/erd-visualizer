@@ -61,6 +61,10 @@ interface NodeCardProps {
   children: ReactNode;
   footer?: ReactNode;
   width?: string;
+  /** Future-state nodes get dashed borders and a teal tint */
+  isFutureState?: boolean;
+  /** Conflict nodes get an amber warning ring */
+  isConflict?: boolean;
 }
 
 export const NodeCard = memo(function NodeCard({
@@ -71,6 +75,8 @@ export const NodeCard = memo(function NodeCard({
   children,
   footer,
   width = "w-72",
+  isFutureState = false,
+  isConflict = false,
 }: NodeCardProps) {
   const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
   const isSelected = selectedNodeId === nodeId;
@@ -78,10 +84,13 @@ export const NodeCard = memo(function NodeCard({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-card shadow-sm overflow-hidden transition-all border-l-4",
+        "rounded-lg border border-border shadow-sm overflow-hidden transition-all border-l-4",
         width,
+        isFutureState ? "bg-teal-50/50" : "bg-card",
         BORDER_COLORS[entityType] ?? "border-l-gray-400",
+        isFutureState && "border-dashed",
         isSelected && "ring-2 ring-primary/50 shadow-md",
+        isConflict && !isSelected && "ring-2 ring-amber-400",
         "hover:shadow-md"
       )}
     >

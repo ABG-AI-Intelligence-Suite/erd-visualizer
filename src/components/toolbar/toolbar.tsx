@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Layers } from "lucide-react";
 
 interface ToolbarProps {
   nodes: Node[];
@@ -38,6 +38,10 @@ export function Toolbar({
   const toggleCollapse = useCanvasStore((s) => s.toggleCollapse);
   const viewMode = useCanvasStore((s) => s.viewMode);
   const hasGraph = nodes.length > 0;
+  const futureStateNodes = useCanvasStore((s) => s.futureStateNodes);
+  const futureStateVisible = useCanvasStore((s) => s.futureStateVisible);
+  const toggleFutureStateVisible = useCanvasStore((s) => s.toggleFutureStateVisible);
+  const hasFutureState = futureStateNodes.length > 0;
 
   if (!isConnected && !hasGraph) return null;
 
@@ -52,6 +56,27 @@ export function Toolbar({
             collapsed={collapsed}
             onToggleCollapse={toggleCollapse}
           />
+          {hasFutureState && (
+            <>
+              <Separator orientation="vertical" className="h-5" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Toggle
+                      pressed={futureStateVisible}
+                      onPressedChange={toggleFutureStateVisible}
+                      size="sm"
+                      className="h-7 text-[11px] px-2.5 data-[state=on]:bg-teal-100 data-[state=on]:text-teal-800 data-[state=on]:border-teal-300"
+                    >
+                      <Layers className="h-3 w-3 mr-1" />
+                      Future State ({futureStateNodes.length})
+                    </Toggle>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Show or hide the imported future state schema layer</TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       )}
 
@@ -75,6 +100,27 @@ export function Toolbar({
             </TooltipTrigger>
             <TooltipContent>Show edges between schemas sharing the same primary identity namespace</TooltipContent>
           </Tooltip>
+          {hasFutureState && (
+            <>
+              <Separator orientation="vertical" className="h-5" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Toggle
+                      pressed={futureStateVisible}
+                      onPressedChange={toggleFutureStateVisible}
+                      size="sm"
+                      className="h-7 text-[11px] px-2.5 data-[state=on]:bg-teal-100 data-[state=on]:text-teal-800 data-[state=on]:border-teal-300"
+                    >
+                      <Layers className="h-3 w-3 mr-1" />
+                      Future State ({futureStateNodes.length})
+                    </Toggle>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Show or hide the imported future state schema layer</TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       )}
 

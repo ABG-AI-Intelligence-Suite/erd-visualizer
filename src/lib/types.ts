@@ -129,6 +129,9 @@ export interface ErdField {
   isPrimaryKey: boolean;
   isForeignKey: boolean;
   fkTarget?: string;
+  // Future-state Excel import extras
+  isFacCandidate?: boolean;
+  identityNamespace?: string;
 }
 
 export interface DatasetNodeData {

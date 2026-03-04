@@ -46,6 +46,14 @@ interface CanvasStore {
   mergeGraph: (nodes: Node[], edges: Edge[]) => void;
   removeEntityTypes: (entityTypes: string[]) => void;
 
+  // Future-state (Excel import) layer — session-only, independently togglable
+  futureStateNodes: Node[];
+  futureStateEdges: Edge[];
+  futureStateVisible: boolean;
+  importFutureState: (nodes: Node[], edges: Edge[]) => void;
+  clearFutureState: () => void;
+  toggleFutureStateVisible: () => void;
+
   // UI panels
   detailPanelPinned: boolean;
   toggleDetailPanelPinned: () => void;
@@ -170,6 +178,75 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
         rawNodes: state.rawNodes.filter((n) => !removedIds.has(n.id)),
         rawEdges: state.rawEdges.filter((e) => !removedIds.has(e.source) && !removedIds.has(e.target)),
       };
+    }),
+
+  // ── Future-state layer ──────────────────────────────────────────────────
+  futureStateNodes: [],
+  futureStateEdges: [],
+  futureStateVisible: false,
+
+  importFutureState: (nodes, edges) =>
+    set((state) => {
+      // Remove any previously imported future-state nodes/edges from rawNodes/rawEdges
+      const prevFutureIds = new Set(state.futureStateNodes.map((n) => n.id));
+      const cleanRaw = state.rawNodes.filter((n) => !prevFutureIds.has(n.id));
+      const cleanEdges = state.rawEdges.filter(
+        (e) => !prevFutureIds.has(e.source) && !prevFutureIds.has(e.target)
+      );
+      // Merge new future-state nodes/edges into rawNodes/rawEdges
+      const existingIds = new Set(cleanRaw.map((n) => n.id));
+      const existingEdgeIds = new Set(cleanEdges.map((e) => e.id));
+      return {
+        futureStateNodes: nodes,
+        futureStateEdges: edges,
+        futureStateVisible: true,
+        rawNodes: [...cleanRaw, ...nodes.filter((n) => !existingIds.has(n.id))],
+        rawEdges: [...cleanEdges, ...edges.filter((e) => !existingEdgeIds.has(e.id))],
+      };
+    }),
+
+  clearFutureState: () =>
+    set((state) => {
+      const futureIds = new Set(state.futureStateNodes.map((n) => n.id));
+      return {
+        futureStateNodes: [],
+        futureStateEdges: [],
+        futureStateVisible: false,
+        rawNodes: state.rawNodes.filter((n) => !futureIds.has(n.id)),
+        rawEdges: state.rawEdges.filter(
+          (e) => !futureIds.has(e.source) && !futureIds.has(e.target)
+        ),
+      };
+    }),
+
+  toggleFutureStateVisible: () =>
+    set((state) => {
+      const futureIds = new Set(state.futureStateNodes.map((n) => n.id));
+      if (state.futureStateVisible) {
+        // Hide: remove future-state nodes/edges from rawNodes/rawEdges
+        return {
+          futureStateVisible: false,
+          rawNodes: state.rawNodes.filter((n) => !futureIds.has(n.id)),
+          rawEdges: state.rawEdges.filter(
+            (e) => !futureIds.has(e.source) && !futureIds.has(e.target)
+          ),
+        };
+      } else {
+        // Show: re-merge future-state nodes/edges back into rawNodes/rawEdges
+        const existingIds = new Set(state.rawNodes.map((n) => n.id));
+        const existingEdgeIds = new Set(state.rawEdges.map((e) => e.id));
+        return {
+          futureStateVisible: true,
+          rawNodes: [
+            ...state.rawNodes,
+            ...state.futureStateNodes.filter((n) => !existingIds.has(n.id)),
+          ],
+          rawEdges: [
+            ...state.rawEdges,
+            ...state.futureStateEdges.filter((e) => !existingEdgeIds.has(e.id)),
+          ],
+        };
+      }
     }),
 
   detailPanelPinned: false,

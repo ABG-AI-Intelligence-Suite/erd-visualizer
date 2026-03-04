@@ -1,6 +1,7 @@
 "use client";
 
-import { Database, Search, Settings, Plug, PlugZap, Unplug } from "lucide-react";
+import { useRef, useCallback } from "react";
+import { Database, Search, Settings, Plug, PlugZap, Unplug, FileUp, Eye, EyeOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -13,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCanvasStore } from "@/store/canvas-store";
+import { parseExcelFutureState } from "@/lib/excel-import";
 import type { AepConnectionConfig, FetchOptions, ViewMode } from "@/lib/types";
 
 interface AppHeaderProps {
@@ -40,12 +42,54 @@ export function AppHeader({
   const hasGraph = useCanvasStore((s) => s.rawNodes.length > 0);
   const viewMode = useCanvasStore((s) => s.viewMode);
   const setViewMode = useCanvasStore((s) => s.setViewMode);
+  const rawNodes = useCanvasStore((s) => s.rawNodes);
+  const importFutureState = useCanvasStore((s) => s.importFutureState);
+  const toggleFutureStateVisible = useCanvasStore((s) => s.toggleFutureStateVisible);
+  const futureStateNodes = useCanvasStore((s) => s.futureStateNodes);
+  const futureStateVisible = useCanvasStore((s) => s.futureStateVisible);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      // Reset input so the same file can be re-imported
+      e.target.value = "";
+      try {
+        const result = await parseExcelFutureState(file, rawNodes);
+        importFutureState(result.nodes, result.edges);
+        if (result.conflicts.length > 0) {
+          console.warn(
+            `[Import Future State] Schema conflict(s): ${result.conflicts.join(", ")}`
+          );
+        }
+      } catch (err) {
+        console.error("[Import Future State] Failed to parse Excel file:", err);
+      }
+    },
+    [rawNodes, importFutureState]
+  );
 
   const isConnected = Boolean(connection);
   const showViewControls = isConnected || hasGraph;
+  const hasFutureState = futureStateNodes.length > 0;
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-card px-4">
+      {/* Hidden file input for future state import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       {/* Title */}
       <div className="flex items-center gap-2.5">
         <Database className="h-4 w-4 text-primary/70" />
@@ -84,6 +128,48 @@ export function AppHeader({
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Import Future State button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs border-teal-300 text-teal-700 hover:bg-teal-50"
+            onClick={handleImportClick}
+          >
+            <FileUp className="h-3.5 w-3.5" />
+            Import Future State
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Import future state schema design from .xlsx</TooltipContent>
+      </Tooltip>
+
+      {/* Hide / Show Future State toggle — only when a future state is loaded */}
+      {hasFutureState && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className={`h-8 w-8 ${
+                futureStateVisible
+                  ? "border-teal-300 text-teal-700 hover:bg-teal-50"
+                  : "text-muted-foreground"
+              }`}
+              onClick={toggleFutureStateVisible}
+            >
+              {futureStateVisible
+                ? <Eye className="h-4 w-4" />
+                : <EyeOff className="h-4 w-4" />
+              }
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {futureStateVisible ? "Hide future state layer" : "Show future state layer"}
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       {/* View mode toggle */}
       {showViewControls && (
