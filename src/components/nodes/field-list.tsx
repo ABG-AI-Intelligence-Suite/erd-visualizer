@@ -13,7 +13,7 @@ interface FieldListProps {
   accentColor: string;
 }
 
-const MAX_VISIBLE = 20;
+const MAX_VISIBLE = 50;
 
 export const FieldList = memo(function FieldList({ nodeId, fields, accentColor }: FieldListProps) {
   const expanded = useCanvasStore((s) => s.expandedNodes[nodeId] ?? false);
@@ -80,7 +80,7 @@ export const FieldList = memo(function FieldList({ nodeId, fields, accentColor }
           ))}
           {hasMore && (
             <div className="px-3 py-1 text-[10px] text-muted-foreground italic">
-              +{fields.length - MAX_VISIBLE} more fields
+              +{fields.length - MAX_VISIBLE} more — select node to view all in sidebar
             </div>
           )}
         </ScrollArea>

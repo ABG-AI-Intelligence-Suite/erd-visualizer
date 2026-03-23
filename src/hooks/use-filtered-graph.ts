@@ -10,14 +10,18 @@ const TYPE_MAP: Record<string, EntityFilterKey> = {
   flowNode: "flows",
 };
 
-const COL_WIDTH = 480;
-const ROW_HEIGHT = 340;
-const COL_MAP: Record<string, number> = {
+// Fixed stratum per node type for the full-mode stratified layout.
+// Nodes are arranged top-to-bottom: flows → datasets → schemas/identities → fieldgroups
+const TYPE_STRATUM: Record<string, number> = {
   flowNode: 0,
   datasetNode: 1,
   schemaNode: 2,
+  identityNode: 2,
   fieldGroupNode: 3,
 };
+
+const FULL_LEVEL_GAP = 520;
+const FULL_NODE_GAP = 380;
 
 const COLOR_MAP: Record<string, string> = {
   datasets: "dataset",
@@ -71,27 +75,107 @@ function filterByType(nodes: Node[], filters: FilterState): Node[] {
   return out;
 }
 
-function applyGridLayout(nodes: Node[]): Node[] {
-  const rowCounters: Record<number, number> = {};
-  const result: Node[] = [];
+/**
+ * Stratified layout for the full-mode canvas.
+ *
+ * Assigns each node to a fixed vertical stratum based on its type:
+ *   0 → flows  1 → datasets  2 → schemas + identity hubs  3 → field groups
+ *
+ * Within each stratum, nodes are sorted horizontally by the average column
+ * index of their connected neighbours in the stratum above them, so that
+ * related nodes cluster underneath their parents.
+ */
+function applyStratifiedLayout(nodes: Node[], edges: Edge[], levelGap: number, nodeGap: number): Node[] {
+  if (nodes.length === 0) return nodes;
+
+  const nodeLookup = new Map<string, Node>();
+  for (let i = 0; i < nodes.length; i++) nodeLookup.set(nodes[i].id, nodes[i]);
+
+  // Build undirected adjacency (used only for sibling-ordering heuristic)
+  const adjacency = new Map<string, string[]>();
+  for (let i = 0; i < edges.length; i++) {
+    const { source, target } = edges[i];
+    if (!nodeLookup.has(source) || !nodeLookup.has(target)) continue;
+    const s = adjacency.get(source) ?? [];
+    s.push(target);
+    adjacency.set(source, s);
+    const t = adjacency.get(target) ?? [];
+    t.push(source);
+    adjacency.set(target, t);
+  }
+
+  const labelOf = (n: Node) => String((n.data as { label?: string } | undefined)?.label ?? n.id);
+
+  // Group nodes by stratum
+  const strata = new Map<number, Node[]>();
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
-    const col = n.type != null ? COL_MAP[n.type] : undefined;
-    if (col == null) {
-      result.push(n);
-      continue;
-    }
-    const row = rowCounters[col] ?? 0;
-    rowCounters[col] = row + 1;
-    result.push({
-      ...n,
-      position: { x: col * COL_WIDTH + 40, y: row * ROW_HEIGHT + 40 },
-    });
+    const stratum = TYPE_STRATUM[n.type ?? ""] ?? 2;
+    const list = strata.get(stratum);
+    if (list) list.push(n);
+    else strata.set(stratum, [n]);
   }
-  return result;
+
+  const orderedStrata = Array.from(strata.keys()).sort((a, b) => a - b);
+
+  // columnIndex[nodeId] = horizontal sort position within its stratum
+  const columnIndex = new Map<string, number>();
+
+  for (let si = 0; si < orderedStrata.length; si++) {
+    const stratum = orderedStrata[si];
+    const nodesHere = strata.get(stratum) ?? [];
+    const prevStratum = orderedStrata[si - 1];
+
+    if (si === 0 || prevStratum === undefined) {
+      // Topmost stratum: sort alphabetically
+      nodesHere.sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+    } else {
+      const prevNodes = new Set((strata.get(prevStratum) ?? []).map((n) => n.id));
+      nodesHere.sort((a, b) => {
+        const avgParent = (n: Node) => {
+          const neighbours = adjacency.get(n.id) ?? [];
+          let total = 0, count = 0;
+          for (let k = 0; k < neighbours.length; k++) {
+            const nbId = neighbours[k];
+            if (!prevNodes.has(nbId)) continue;
+            const col = columnIndex.get(nbId);
+            if (col == null) continue;
+            total += col;
+            count++;
+          }
+          return count === 0 ? Number.MAX_SAFE_INTEGER : total / count;
+        };
+        const pa = avgParent(a);
+        const pb = avgParent(b);
+        if (pa !== pb) return pa - pb;
+        return labelOf(a).localeCompare(labelOf(b));
+      });
+    }
+
+    for (let col = 0; col < nodesHere.length; col++) {
+      columnIndex.set(nodesHere[col].id, col);
+    }
+  }
+
+  // Lay out: x = column * nodeGap (centred per row), y = stratum * levelGap
+  const maxCols = Math.max(...orderedStrata.map((s) => (strata.get(s) ?? []).length));
+
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const stratum of orderedStrata) {
+    const nodesHere = strata.get(stratum) ?? [];
+    const centerOffset = ((maxCols - nodesHere.length) / 2) * nodeGap;
+    for (let col = 0; col < nodesHere.length; col++) {
+      positions.set(nodesHere[col].id, {
+        x: 40 + centerOffset + col * nodeGap,
+        y: stratum * levelGap + 40,
+      });
+    }
+  }
+
+  return nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position }));
 }
 
-function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
+function applyTopologyLayout(nodes: Node[], edges: Edge[], levelGap: number, nodeGap: number): Node[] {
   if (nodes.length === 0) return nodes;
 
   const nodeIds = new Set<string>();
@@ -160,11 +244,18 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
       const candidateId = componentIds[i];
       const isIdentityHub = candidateId.startsWith("identity-");
       const rootIsIdentityHub = rootId.startsWith("identity-");
+      const isDataset = (nodeLookup.get(candidateId)?.type === "datasetNode");
+      const rootIsDataset = (nodeLookup.get(rootId)?.type === "datasetNode");
+      // Priority: identity hub > dataset > everything else
       if (isIdentityHub && !rootIsIdentityHub) {
         rootId = candidateId;
         continue;
       }
-      if (isIdentityHub === rootIsIdentityHub) {
+      if (!rootIsIdentityHub && isDataset && !rootIsDataset) {
+        rootId = candidateId;
+        continue;
+      }
+      if (isIdentityHub === rootIsIdentityHub && isDataset === rootIsDataset) {
         const candidateDegree = (adjacency.get(candidateId) ?? []).length;
         const rootDegree = (adjacency.get(rootId) ?? []).length;
         if (candidateDegree > rootDegree) {
@@ -245,16 +336,16 @@ function applySchemaRelationshipLayout(nodes: Node[], edges: Edge[]): Node[] {
     for (let i = 0; i < orderedLevels.length; i++) {
       const level = orderedLevels[i];
       const ids = rows.get(level) ?? [];
-      const centerOffset = ((maxCols - ids.length) / 2) * SCHEMA_NODE_GAP;
+      const centerOffset = ((maxCols - ids.length) / 2) * nodeGap;
       for (let col = 0; col < ids.length; col++) {
         positions.set(ids[col], {
-          x: xOffset + centerOffset + col * SCHEMA_NODE_GAP,
-          y: level * SCHEMA_LEVEL_GAP + 40,
+          x: xOffset + centerOffset + col * nodeGap,
+          y: level * levelGap + 40,
         });
       }
     }
 
-    xOffset += maxCols * SCHEMA_NODE_GAP + SCHEMA_COMPONENT_GAP;
+    xOffset += maxCols * nodeGap + SCHEMA_COMPONENT_GAP;
   }
 
   return nodes.map((node) => ({
@@ -420,7 +511,9 @@ export function useFilteredGraph() {
           (e) => (e.data as RelationshipEdgeData | undefined)?.relationshipType !== "schema-identity"
         );
       }
-      filteredNodes = filteredNodes.filter((n) => n.type !== "identityNode");
+      if (!deferredFilters.identityLinks) {
+        filteredNodes = filteredNodes.filter((n) => n.type !== "identityNode");
+      }
     }
 
     if (!isFocusActive && deferredFilters.profileOnly) {
@@ -472,8 +565,8 @@ export function useFilteredGraph() {
 
     if (!deferredFocusNodeId || !filteredNodes.some((n) => n.id === deferredFocusNodeId)) {
       filteredNodes = deferredViewMode === "schema"
-        ? applySchemaRelationshipLayout(filteredNodes, candidateEdges)
-        : applyGridLayout(filteredNodes);
+        ? applyTopologyLayout(filteredNodes, candidateEdges, SCHEMA_LEVEL_GAP, SCHEMA_NODE_GAP)
+        : applyStratifiedLayout(filteredNodes, candidateEdges, FULL_LEVEL_GAP, FULL_NODE_GAP);
     } else {
       const visibleNodeIds = new Set<string>();
       for (let i = 0; i < filteredNodes.length; i++) {

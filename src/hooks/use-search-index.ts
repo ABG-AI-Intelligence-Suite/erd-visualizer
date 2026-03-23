@@ -84,6 +84,8 @@ export function useSearchIndex(rawNodes: Node[]) {
       const results: SearchResult[] = [];
 
       for (const entry of index) {
+        if (results.length >= maxResults) break;
+
         // Name match (highest priority)
         if (entry.labelLower.includes(q)) {
           const score = entry.labelLower === q ? 100 : entry.labelLower.startsWith(q) ? 90 : 80;
@@ -149,7 +151,6 @@ export function useSearchIndex(rawNodes: Node[]) {
           });
         }
 
-        if (results.length >= maxResults) break;
       }
 
       results.sort((a, b) => b.score - a.score);

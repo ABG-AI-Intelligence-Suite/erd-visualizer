@@ -34,6 +34,10 @@ interface CanvasStore {
   focusExpansionStep: number;
   loadMoreFocusResults: () => void;
 
+  /** Navigate camera to a node without entering focus mode */
+  scrollToNodeId: string | null;
+  setScrollToNode: (id: string | null) => void;
+
   collapsed: Record<EntityFilterKey, boolean>;
   toggleCollapse: (type: EntityFilterKey) => void;
 
@@ -131,6 +135,9 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
     set((state) => ({
       focusExpansionStep: state.focusNodeId ? state.focusExpansionStep + 1 : 0,
     })),
+
+  scrollToNodeId: null,
+  setScrollToNode: (id) => set({ scrollToNodeId: id }),
 
   collapsed: {
     datasets: false,
@@ -235,6 +242,7 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
         // Show: re-merge future-state nodes/edges back into rawNodes/rawEdges
         const existingIds = new Set(state.rawNodes.map((n) => n.id));
         const existingEdgeIds = new Set(state.rawEdges.map((e) => e.id));
+        const existingNodeIds = new Set(state.rawNodes.map((n) => n.id));
         return {
           futureStateVisible: true,
           rawNodes: [
@@ -243,7 +251,12 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
           ],
           rawEdges: [
             ...state.rawEdges,
-            ...state.futureStateEdges.filter((e) => !existingEdgeIds.has(e.id)),
+            ...state.futureStateEdges.filter(
+              (e) =>
+                !existingEdgeIds.has(e.id) &&
+                existingNodeIds.has(e.source) &&
+                existingNodeIds.has(e.target)
+            ),
           ],
         };
       }

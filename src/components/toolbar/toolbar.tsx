@@ -56,6 +56,22 @@ export function Toolbar({
             collapsed={collapsed}
             onToggleCollapse={toggleCollapse}
           />
+          <Separator orientation="vertical" className="h-5" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Toggle
+                  pressed={filters.identityLinks}
+                  onPressedChange={() => toggleFilter("identityLinks")}
+                  size="sm"
+                  className="h-7 text-[11px] px-2.5"
+                >
+                  Identity Links
+                </Toggle>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Show edges between schemas sharing the same primary identity namespace</TooltipContent>
+          </Tooltip>
           {hasFutureState && (
             <>
               <Separator orientation="vertical" className="h-5" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Map } from "lucide-react";
 import {
   applyNodeChanges,
   ReactFlow,
@@ -51,10 +52,14 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
+  const scrollToNodeId = useCanvasStore((s) => s.scrollToNodeId);
+  const setScrollToNode = useCanvasStore((s) => s.setScrollToNode);
   const { setCenter, fitView } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>(externalNodes);
+  const [minimapVisible, setMinimapVisible] = useState(true);
 
   const prevFocusNodeIdRef = useRef<string | null>(null);
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
     setNodes(externalNodes);
@@ -64,20 +69,22 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
       return;
     }
 
+    cancelAnimationFrame(rafRef.current);
+
     if (prevFocusNodeIdRef.current) {
       const lastNode = externalNodes.find((n) => n.id === prevFocusNodeIdRef.current);
       prevFocusNodeIdRef.current = null;
       if (lastNode) {
-        const id = requestAnimationFrame(() =>
+        rafRef.current = requestAnimationFrame(() =>
           setCenter(lastNode.position.x + 132, lastNode.position.y + 40, { zoom: 0.85, duration: 300 })
         );
-        return () => cancelAnimationFrame(id);
+        return () => cancelAnimationFrame(rafRef.current);
       }
     }
 
     if (externalNodes.length > 0) {
-      const id = requestAnimationFrame(() => fitView({ padding: 0.15, duration: 400 }));
-      return () => cancelAnimationFrame(id);
+      rafRef.current = requestAnimationFrame(() => fitView({ padding: 0.15, duration: 400 }));
+      return () => cancelAnimationFrame(rafRef.current);
     }
   }, [externalNodes, focusNodeId, fitView, setCenter]);
 
@@ -87,8 +94,27 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
     if (!focused) return;
     const x = focused.position.x + 132;
     const y = focused.position.y + 40;
-    setCenter(x, y, { zoom: 1.15, duration: 250 });
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() =>
+      setCenter(x, y, { zoom: 1.15, duration: 250 })
+    );
+    return () => cancelAnimationFrame(rafRef.current);
   }, [focusNodeId, externalNodes, setCenter]);
+
+  // Navigate to a node without entering focus mode (used by command palette search)
+  useEffect(() => {
+    if (!scrollToNodeId) return;
+    const target = externalNodes.find((n) => n.id === scrollToNodeId);
+    if (!target) return;
+    const x = target.position.x + 132;
+    const y = target.position.y + 40;
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      setCenter(x, y, { zoom: 1.2, duration: 500 });
+      setScrollToNode(null);
+    });
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [scrollToNodeId, externalNodes, setCenter, setScrollToNode]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -146,7 +172,7 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
         fitViewOptions={fitViewOptions}
         minZoom={MIN_ZOOM}
         maxZoom={3}
-        elevateEdgesOnSelect={false}
+        elevateEdgesOnSelect={true}
         nodesConnectable={false}
         edgesReconnectable={false}
         deleteKeyCode={null}
@@ -157,27 +183,44 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
         panOnDrag={true}
         nodesFocusable={true}
         edgesFocusable={false}
-        onlyRenderVisibleElements
+
       >
         <ControlsPanel />
-        <MiniMap
-          nodeColor={(node) => {
-            const colorMap: Record<string, string> = {
-              datasetNode: "#3b82f6",
-              schemaNode: "#8b5cf6",
-              fieldGroupNode: "#22c55e",
-              flowNode: "#f97316",
-              summaryNode: "#94a3b8",
-              identityNode: "#0ea5e9",
-            };
-            return colorMap[node.type ?? ""] ?? "#94a3b8";
-          }}
-          maskColor="rgba(0,0,0,0.08)"
-          className="!bg-card/90 !border !rounded-lg !shadow-sm"
-          pannable
-          zoomable
-        />
+        {minimapVisible && (
+          <MiniMap
+            style={{ width: 400, height: 300 }}
+            nodeColor={(node) => {
+              const colorMap: Record<string, string> = {
+                datasetNode: "#3b82f6",
+                schemaNode: "#8b5cf6",
+                fieldGroupNode: "#22c55e",
+                flowNode: "#f97316",
+                summaryNode: "#94a3b8",
+                identityNode: "#0ea5e9",
+              };
+              return colorMap[node.type ?? ""] ?? "#94a3b8";
+            }}
+            nodeStrokeWidth={4}
+            maskColor="rgba(0,0,0,0.08)"
+            className="!bg-card/90 !border !rounded-lg !shadow-sm"
+            pannable
+            zoomable
+          />
+        )}
       </ReactFlow>
+      {/* Minimap toggle button — sits above/beside the minimap in the bottom-right */}
+      <button
+        onClick={() => setMinimapVisible((v) => !v)}
+        className="absolute z-20 flex items-center gap-1 rounded-md border bg-card/90 px-2 py-1 text-[11px] font-medium shadow-sm hover:bg-accent transition-colors"
+        style={{ bottom: minimapVisible ? 316 : 12, right: 12 }}
+        title={minimapVisible ? "Collapse minimap" : "Expand minimap"}
+      >
+        <Map className="h-3 w-3" />
+        <span>Map</span>
+        <ChevronDown
+          className={`h-3 w-3 transition-transform duration-200 ${minimapVisible ? "" : "rotate-180"}`}
+        />
+      </button>
       <LegendOverlay />
     </div>
   );
