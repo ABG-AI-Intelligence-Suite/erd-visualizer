@@ -81,6 +81,7 @@ interface CanvasStore {
   setActiveSnapshotLabel: (label: string | null) => void;
 
   miroExportList: string[];
+  miroExportIds: Record<string, boolean>;
   addToMiroExport: (id: string) => void;
   removeFromMiroExport: (id: string) => void;
   clearMiroExport: () => void;
@@ -193,74 +194,13 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   futureStateVisible: false,
 
   importFutureState: (nodes, edges) =>
-    set((state) => {
-      // Remove any previously imported future-state nodes/edges from rawNodes/rawEdges
-      const prevFutureIds = new Set(state.futureStateNodes.map((n) => n.id));
-      const cleanRaw = state.rawNodes.filter((n) => !prevFutureIds.has(n.id));
-      const cleanEdges = state.rawEdges.filter(
-        (e) => !prevFutureIds.has(e.source) && !prevFutureIds.has(e.target)
-      );
-      // Merge new future-state nodes/edges into rawNodes/rawEdges
-      const existingIds = new Set(cleanRaw.map((n) => n.id));
-      const existingEdgeIds = new Set(cleanEdges.map((e) => e.id));
-      return {
-        futureStateNodes: nodes,
-        futureStateEdges: edges,
-        futureStateVisible: true,
-        rawNodes: [...cleanRaw, ...nodes.filter((n) => !existingIds.has(n.id))],
-        rawEdges: [...cleanEdges, ...edges.filter((e) => !existingEdgeIds.has(e.id))],
-      };
-    }),
+    set({ futureStateNodes: nodes, futureStateEdges: edges, futureStateVisible: true }),
 
   clearFutureState: () =>
-    set((state) => {
-      const futureIds = new Set(state.futureStateNodes.map((n) => n.id));
-      return {
-        futureStateNodes: [],
-        futureStateEdges: [],
-        futureStateVisible: false,
-        rawNodes: state.rawNodes.filter((n) => !futureIds.has(n.id)),
-        rawEdges: state.rawEdges.filter(
-          (e) => !futureIds.has(e.source) && !futureIds.has(e.target)
-        ),
-      };
-    }),
+    set({ futureStateNodes: [], futureStateEdges: [], futureStateVisible: false }),
 
   toggleFutureStateVisible: () =>
-    set((state) => {
-      const futureIds = new Set(state.futureStateNodes.map((n) => n.id));
-      if (state.futureStateVisible) {
-        // Hide: remove future-state nodes/edges from rawNodes/rawEdges
-        return {
-          futureStateVisible: false,
-          rawNodes: state.rawNodes.filter((n) => !futureIds.has(n.id)),
-          rawEdges: state.rawEdges.filter(
-            (e) => !futureIds.has(e.source) && !futureIds.has(e.target)
-          ),
-        };
-      } else {
-        // Show: re-merge future-state nodes/edges back into rawNodes/rawEdges
-        const existingIds = new Set(state.rawNodes.map((n) => n.id));
-        const existingEdgeIds = new Set(state.rawEdges.map((e) => e.id));
-        const existingNodeIds = new Set(state.rawNodes.map((n) => n.id));
-        return {
-          futureStateVisible: true,
-          rawNodes: [
-            ...state.rawNodes,
-            ...state.futureStateNodes.filter((n) => !existingIds.has(n.id)),
-          ],
-          rawEdges: [
-            ...state.rawEdges,
-            ...state.futureStateEdges.filter(
-              (e) =>
-                !existingEdgeIds.has(e.id) &&
-                existingNodeIds.has(e.source) &&
-                existingNodeIds.has(e.target)
-            ),
-          ],
-        };
-      }
-    }),
+    set((state) => ({ futureStateVisible: !state.futureStateVisible })),
 
   detailPanelPinned: false,
   toggleDetailPanelPinned: () =>
@@ -285,15 +225,18 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   setActiveSnapshotLabel: (label) => set({ activeSnapshotLabel: label }),
 
   miroExportList: [],
+  miroExportIds: {},
   addToMiroExport: (id) =>
-    set((s) => ({
-      miroExportList: s.miroExportList.includes(id)
-        ? s.miroExportList
-        : [...s.miroExportList, id],
-    })),
+    set((s) => {
+      if (s.miroExportIds[id]) return s;
+      return { miroExportList: [...s.miroExportList, id], miroExportIds: { ...s.miroExportIds, [id]: true } };
+    }),
   removeFromMiroExport: (id) =>
-    set((s) => ({ miroExportList: s.miroExportList.filter((i) => i !== id) })),
-  clearMiroExport: () => set({ miroExportList: [] }),
+    set((s) => {
+      const { [id]: _, ...rest } = s.miroExportIds;
+      return { miroExportList: s.miroExportList.filter((i) => i !== id), miroExportIds: rest };
+    }),
+  clearMiroExport: () => set({ miroExportList: [], miroExportIds: {} }),
 
   miroToast: null,
   setMiroToast: (msg) => set({ miroToast: msg }),

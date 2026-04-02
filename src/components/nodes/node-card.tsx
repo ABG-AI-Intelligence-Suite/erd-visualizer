@@ -23,7 +23,7 @@ const HEADER_COLORS: Record<string, string> = {
 
 // Separate memo'd component so only this button re-renders when the export list changes
 const AddToExportButton = memo(function AddToExportButton({ nodeId }: { nodeId: string }) {
-  const isQueued        = useCanvasStore((s) => s.miroExportList.includes(nodeId));
+  const isQueued        = useCanvasStore((s) => Boolean(s.miroExportIds[nodeId]));
   const addToMiroExport = useCanvasStore((s) => s.addToMiroExport);
   const removeFromMiroExport = useCanvasStore((s) => s.removeFromMiroExport);
   const setMiroToast    = useCanvasStore((s) => s.setMiroToast);

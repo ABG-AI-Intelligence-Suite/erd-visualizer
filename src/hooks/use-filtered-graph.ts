@@ -462,6 +462,9 @@ function limitFocusGraph(
 export function useFilteredGraph() {
   const rawNodes = useCanvasStore((s) => s.rawNodes) as Node[];
   const rawEdges = useCanvasStore((s) => s.rawEdges) as Edge[];
+  const futureStateNodes = useCanvasStore((s) => s.futureStateNodes) as Node[];
+  const futureStateEdges = useCanvasStore((s) => s.futureStateEdges) as Edge[];
+  const futureStateVisible = useCanvasStore((s) => s.futureStateVisible);
   const filters = useCanvasStore((s) => s.filters);
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
   const collapsed = useCanvasStore((s) => s.collapsed);
@@ -476,12 +479,16 @@ export function useFilteredGraph() {
   const collapsedForView = deferredViewMode === "full" ? deferredCollapsed : null;
 
   return useMemo(() => {
+    // Overlay the future-state layer when visible — no rawNodes mutation needed.
+    const baseNodes = futureStateVisible ? [...rawNodes, ...futureStateNodes] : rawNodes;
+    const baseEdges = futureStateVisible ? [...rawEdges, ...futureStateEdges] : rawEdges;
+
     const isFocusActive = Boolean(deferredFocusNodeId);
     let focusSchemaShown = 0;
     let focusSchemaTotal = 0;
     let focusHasMore = false;
-    let candidateEdges = rawEdges;
-    let filteredNodes = filterByType(rawNodes, deferredFilters);
+    let candidateEdges = baseEdges;
+    let filteredNodes = filterByType(baseNodes, deferredFilters);
 
     if (deferredViewMode === "schema") {
       const schemaViewNodes: Node[] = [];
@@ -497,8 +504,8 @@ export function useFilteredGraph() {
       filteredNodes = schemaViewNodes;
 
       const schemaEdges: Edge[] = [];
-      for (let i = 0; i < rawEdges.length; i++) {
-        const edge = rawEdges[i];
+      for (let i = 0; i < baseEdges.length; i++) {
+        const edge = baseEdges[i];
         const relType = (edge.data as RelationshipEdgeData | undefined)?.relationshipType;
         if (relType !== "schema-schema" && relType !== "schema-identity") continue;
         if (relType === "schema-identity" && !deferredFilters.identityLinks) continue;
@@ -507,7 +514,7 @@ export function useFilteredGraph() {
       candidateEdges = schemaEdges;
     } else {
       if (!deferredFilters.identityLinks) {
-        candidateEdges = rawEdges.filter(
+        candidateEdges = baseEdges.filter(
           (e) => (e.data as RelationshipEdgeData | undefined)?.relationshipType !== "schema-identity"
         );
       }
@@ -750,6 +757,9 @@ export function useFilteredGraph() {
   }, [
     rawNodes,
     rawEdges,
+    futureStateNodes,
+    futureStateEdges,
+    futureStateVisible,
     deferredFilters,
     deferredFocusNodeId,
     collapsedForView,

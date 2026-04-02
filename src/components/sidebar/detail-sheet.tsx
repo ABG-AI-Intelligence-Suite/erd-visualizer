@@ -43,7 +43,7 @@ export function DetailSheet({ selectedNode, nodes, edges }: DetailSheetProps) {
   const focusNodeId = useCanvasStore((s) => s.focusNodeId);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
   const detailPanelPinned = useCanvasStore((s) => s.detailPanelPinned);
-  const miroExportList       = useCanvasStore((s) => s.miroExportList);
+  const miroExportIds        = useCanvasStore((s) => s.miroExportIds);
   const addToMiroExport      = useCanvasStore((s) => s.addToMiroExport);
   const removeFromMiroExport = useCanvasStore((s) => s.removeFromMiroExport);
   const setMiroToast         = useCanvasStore((s) => s.setMiroToast);
@@ -92,7 +92,7 @@ export function DetailSheet({ selectedNode, nodes, edges }: DetailSheetProps) {
                 </div>
                 <div className="flex items-center gap-1">
                   {selectedNode && (() => {
-                    const isQueued = miroExportList.includes(selectedNode.id);
+                    const isQueued = Boolean(miroExportIds[selectedNode.id]);
                     return (
                       <Tooltip>
                         <TooltipTrigger asChild>
