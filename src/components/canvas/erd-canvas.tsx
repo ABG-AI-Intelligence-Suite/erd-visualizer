@@ -127,8 +127,7 @@ export function ErdCanvas({ nodes: externalNodes, edges: externalEdges }: ErdCan
 
   const onPaneClick = useCallback(() => {
     if (!detailPanelPinned) setSelectedNode(null);
-    if (focusNodeId) setFocusNode(null);
-  }, [setSelectedNode, setFocusNode, focusNodeId, detailPanelPinned]);
+  }, [setSelectedNode, detailPanelPinned]);
 
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: Node) => {

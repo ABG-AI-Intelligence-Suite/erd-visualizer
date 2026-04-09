@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 export function EmptyState({ onLoadSample }: { onLoadSample: () => void }) {
   const connection = useCanvasStore((s) => s.connection);
   const hasNodes = useCanvasStore((s) => s.rawNodes.length > 0);
+  const hasFutureState = useCanvasStore((s) => s.futureStateNodes.length > 0);
 
-  if (connection || hasNodes) return null;
+  if (connection || hasNodes || hasFutureState) return null;
 
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">

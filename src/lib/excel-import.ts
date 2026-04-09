@@ -63,7 +63,7 @@
 
 import * as XLSX from "xlsx";
 import type { Node, Edge } from "@xyflow/react";
-import type { SchemaNodeData, FieldGroupNodeData, ErdField, RelationshipEdgeData } from "./types";
+import type { SchemaNodeData, FieldGroupNodeData, IdentityNodeData, ErdField, RelationshipEdgeData } from "./types";
 
 // ─── Column header constants ─────────────────────────────────────────────────
 const COL_SCHEMA_NAME      = "Schema name";
@@ -82,6 +82,63 @@ const COL_PII              = "PII / sensitivity";
 const COL_BELONGS_TO       = "Belongs to Data Type";
 const COL_STITCHING        = "Allowed for stitching";
 const COL_OOTB_DOC         = "OOTB doc URL";
+
+/**
+ * Alternate (snake_case) column name aliases → canonical column name.
+ * Handles files that use snake_case headers instead of the expected title-case.
+ * schema_class values ("experienceevent", "profile") are remapped to the
+ * canonical schema type ("TimeSeries", "Record") during row normalization.
+ */
+const COLUMN_ALIASES: Record<string, string> = {
+  schema_name:        COL_SCHEMA_NAME,
+  schema_class:       COL_SCHEMA_TYPE,
+  field_name:         COL_BUSINESS_FIELD,
+  field_path:         COL_XDM_PATH,
+  fac_candidate:      COL_FAC_CANDIDATE,
+  field_group:        COL_FIELD_GROUP,
+  field_group_type:   COL_FIELD_GROUP_TYPE,
+  data_type:          COL_DATA_TYPE,
+  cardinality:        COL_CARDINALITY,
+  identity_namespace: COL_IDENTITY_NS,
+  identity_rank:      COL_PRIMARY_IDENTITY,
+  consent_scope:      COL_CONSENT_SCOPE,
+  pii_sensitivity:    COL_PII,
+};
+
+/** schema_class raw values → canonical Schema type string */
+const SCHEMA_CLASS_MAP: Record<string, string> = {
+  experienceevent: "TimeSeries",
+  profile:         "Record",
+};
+
+/**
+ * Remap snake_case column names to the canonical title-case names expected by
+ * the rest of the parser.  Also converts schema_class values ("experienceevent")
+ * to the canonical schema type ("TimeSeries") so downstream logic is unaffected.
+ * Rows that already use canonical column names are returned unchanged.
+ */
+function normalizeRow(row: SheetRow): SheetRow {
+  const keys = Object.keys(row);
+  // If the first canonical key is present, the row is already in canonical form.
+  if (keys.includes(COL_SCHEMA_NAME) || keys.includes(COL_XDM_PATH) || keys.includes(COL_BUSINESS_FIELD)) {
+    return row;
+  }
+  const out: SheetRow = {};
+  for (const key of keys) {
+    const canonical = COLUMN_ALIASES[key];
+    if (canonical) {
+      let value = row[key];
+      // Remap schema_class raw values to the canonical schema type string
+      if (key === "schema_class" && typeof value === "string") {
+        value = SCHEMA_CLASS_MAP[value.trim().toLowerCase()] ?? value;
+      }
+      out[canonical] = value;
+    } else {
+      out[key] = row[key];
+    }
+  }
+  return out;
+}
 
 // AEP class URIs
 const CLASS_RECORD     = "https://ns.adobe.com/xdm/context/profile";
@@ -117,6 +174,7 @@ function parseFacCandidate(raw: string): boolean {
  *   "Yes (Phone)"                               → "Phone"
  *   "No", "No (reference-only)", ""             → "" (not an identity)
  *   "Yes" (no parens)                           → "" (ambiguous, skip)
+ *   "ECID", "email", "CRMID"                    → raw value (snake_case file format)
  */
 function extractNamespace(raw: string): string {
   if (!raw) return "";
@@ -124,11 +182,11 @@ function extractNamespace(raw: string): string {
   const lower   = trimmed.toLowerCase();
 
   // Explicit negatives
-  if (lower === "no" || lower.startsWith("no ") || lower.startsWith("no(") || lower.startsWith("no(")) {
+  if (lower === "no" || lower.startsWith("no ") || lower.startsWith("no(")) {
     return "";
   }
 
-  // Extract content inside first set of parentheses
+  // "Yes (NS)" / "Optional (NS)" format — extract from parens
   const match = trimmed.match(/\(([^)]+)\)/);
   if (match) {
     const content = match[1].trim();
@@ -138,19 +196,25 @@ function extractNamespace(raw: string): string {
   }
 
   // "Yes" or "Optional" with no parens — ambiguous namespace, skip
-  return "";
+  if (lower.startsWith("yes") || lower.startsWith("optional")) return "";
+
+  // Raw namespace value (snake_case file format — no "Yes/No" prefix)
+  return trimmed;
 }
 
 // ─── Sheet validation ────────────────────────────────────────────────────────
 /**
  * Return true if this sheet contains schema field definitions.
- * Sheets without "XDM path" AND without "Business field" in their headers
- * are treated as reference/catalog sheets and skipped.
+ * Sheets without "XDM path" / "Business field" (or their snake_case aliases
+ * "field_path" / "field_name") are treated as reference/catalog sheets and skipped.
  */
 function isSchemaSheet(rows: SheetRow[]): boolean {
   if (rows.length === 0) return false;
   const headers = Object.keys(rows[0]);
-  return headers.includes(COL_XDM_PATH) || headers.includes(COL_BUSINESS_FIELD);
+  return (
+    headers.includes(COL_XDM_PATH)      || headers.includes(COL_BUSINESS_FIELD) ||
+    headers.includes("field_path")       || headers.includes("field_name")
+  );
 }
 
 // ─── ID helpers ──────────────────────────────────────────────────────────────
@@ -201,7 +265,9 @@ function parseRow(
   const dataType  = cellStr(row, COL_DATA_TYPE)   || "string";
   const rawNs     = cellStr(row, COL_IDENTITY_NS);
   const namespace = extractNamespace(rawNs);
-  const isPrimary = cellStr(row, COL_PRIMARY_IDENTITY).toUpperCase() === "Y";
+  const primaryRaw = cellStr(row, COL_PRIMARY_IDENTITY);
+  // Handles "Y" (title-case format) and "1" / "1.0" (snake_case identity_rank format)
+  const isPrimary  = primaryRaw.toUpperCase() === "Y" || primaryRaw === "1" || primaryRaw === "1.0";
   const isFac     = parseFacCandidate(cellStr(row, COL_FAC_CANDIDATE));
   const fgName    = cellStr(row, COL_FIELD_GROUP);
 
@@ -318,33 +384,75 @@ function buildSchemaFgEdges(parsed: ParsedSchema): Edge<RelationshipEdgeData>[] 
   }));
 }
 
-// ─── Cross-schema edge builders ───────────────────────────────────────────────
+// ─── Identity hub + edge builders ────────────────────────────────────────────
 /**
- * Create schema-identity edges from future-state schemas to existing identity hub
- * nodes ("identity-<namespace>") already present in the graph.
+ * Connect future-state schemas to identity hubs via schema-identity edges.
+ *
+ * For each identity namespace found across the parsed schemas:
+ *   • If an existing hub node ("identity-<ns>") is already in the graph → reuse it.
+ *   • If no existing hub BUT 2+ future schemas share the namespace → create a new
+ *     future-state identity hub node so the schemas are visually connected.
+ *   • A namespace used by only 1 future schema with no existing hub is skipped
+ *     (no hub needed for a single schema).
+ *
+ * Returns both the new identity hub nodes to add and the edges to draw.
  */
-function buildCrossIdentityEdges(
+function buildIdentityConnections(
   parsedSchemas: ParsedSchema[],
   existingNodeIds: Set<string>
-): Edge<RelationshipEdgeData>[] {
+): { nodes: Node<IdentityNodeData & { isFutureState: boolean }>[]; edges: Edge<RelationshipEdgeData>[] } {
+  const newNodes: Node<IdentityNodeData & { isFutureState: boolean }>[] = [];
   const edges: Edge<RelationshipEdgeData>[] = [];
-  const seen = new Set<string>();
+  const edgeSeen = new Set<string>();
 
+  // Group all identity entries by normalised namespace key
+  type Entry = { schemaName: string; path: string; rawNs: string };
+  const byNamespace = new Map<string, Entry[]>();
   for (const schema of parsedSchemas) {
     for (const id of schema.identities) {
-      // Try exact case and lowercase variants to find the hub
-      const hubCandidates = [
-        `identity-${id.namespace}`,
-        `identity-${id.namespace.toLowerCase()}`,
-        `identity-${id.namespace.toUpperCase()}`,
-      ];
-      const hubId = hubCandidates.find((h) => existingNodeIds.has(h));
-      if (!hubId) continue;
+      const nsKey = id.namespace.toLowerCase();
+      const list = byNamespace.get(nsKey);
+      if (list) list.push({ schemaName: schema.schemaName, path: id.path, rawNs: id.namespace });
+      else byNamespace.set(nsKey, [{ schemaName: schema.schemaName, path: id.path, rawNs: id.namespace }]);
+    }
+  }
 
-      const schemaNodeId = futureSchemaNodeId(schema.schemaName);
-      const edgeId = `edge-future-cross-identity-${id.namespace.toLowerCase()}-${schemaNodeId}`;
-      if (seen.has(edgeId)) continue;
-      seen.add(edgeId);
+  for (const [nsKey, entries] of Array.from(byNamespace)) {
+    // Prefer existing hub; try original casing, lowercase, uppercase
+    const rawNs = entries[0].rawNs;
+    const existingHubId = [
+      `identity-${rawNs}`,
+      `identity-${nsKey}`,
+      `identity-${rawNs.toUpperCase()}`,
+    ].find((h) => existingNodeIds.has(h));
+
+    let hubId: string;
+    if (existingHubId) {
+      hubId = existingHubId;
+    } else if (entries.length >= 2) {
+      // Multiple future schemas share this namespace — create a new hub
+      hubId = `identity-${nsKey}`;
+      newNodes.push({
+        id:   hubId,
+        type: "identityNode",
+        position: { x: 0, y: 0 },
+        data: {
+          entityType:    "identity" as const,
+          label:         rawNs,
+          namespace:     nsKey,
+          schemaCount:   entries.length,
+          isFutureState: true,
+        },
+      });
+    } else {
+      continue; // Single schema, no existing hub — no connection needed
+    }
+
+    for (const entry of entries) {
+      const schemaNodeId = futureSchemaNodeId(entry.schemaName);
+      const edgeId = `edge-future-cross-identity-${nsKey}-${schemaNodeId}`;
+      if (edgeSeen.has(edgeId)) continue;
+      edgeSeen.add(edgeId);
 
       edges.push({
         id:     edgeId,
@@ -354,15 +462,15 @@ function buildCrossIdentityEdges(
         data: {
           relationshipType: "schema-identity" as const,
           label:            "shared identity",
-          fkLabel:          id.namespace,
-          pkLabel:          id.path,
-          targetField:      id.path,
+          fkLabel:          entry.rawNs,
+          pkLabel:          entry.path,
+          targetField:      entry.path,
         },
       });
     }
   }
 
-  return edges;
+  return { nodes: newNodes, edges };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -416,7 +524,8 @@ export async function parseExcelFutureState(
       continue;
     }
 
-    rows.forEach((row, rowIdx) => {
+    rows.forEach((rawRow, rowIdx) => {
+      const row = normalizeRow(rawRow);
       const schemaName = cellStr(row, COL_SCHEMA_NAME).trim();
       if (!schemaName) {
         // Skip rows with no schema name (could be a section header or empty row)
@@ -467,11 +576,13 @@ export async function parseExcelFutureState(
     nodes.push(...buildFieldGroupNodes(parsed));
   }
 
-  // Build edges
-  const schemaFgEdges      = parsedSchemas.flatMap(buildSchemaFgEdges);
-  const crossIdentityEdges = buildCrossIdentityEdges(parsedSchemas, existingNodeIds);
+  // Build edges + any new identity hub nodes
+  const schemaFgEdges                   = parsedSchemas.flatMap(buildSchemaFgEdges);
+  const { nodes: identityHubNodes,
+          edges: identityEdges }         = buildIdentityConnections(parsedSchemas, existingNodeIds);
 
-  const edges: Edge[] = [...schemaFgEdges, ...crossIdentityEdges];
+  nodes.push(...identityHubNodes);
+  const edges: Edge[] = [...schemaFgEdges, ...identityEdges];
 
   console.info(
     `[excel-import] Imported ${parsedSchemas.length} schema(s), ` +

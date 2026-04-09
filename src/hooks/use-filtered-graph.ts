@@ -11,13 +11,13 @@ const TYPE_MAP: Record<string, EntityFilterKey> = {
 };
 
 // Fixed stratum per node type for the full-mode stratified layout.
-// Nodes are arranged top-to-bottom: flows → datasets → schemas/identities → fieldgroups
+// Nodes are arranged top-to-bottom: flows → datasets → identities → schemas → fieldgroups
 const TYPE_STRATUM: Record<string, number> = {
   flowNode: 0,
   datasetNode: 1,
-  schemaNode: 2,
   identityNode: 2,
-  fieldGroupNode: 3,
+  schemaNode: 3,
+  fieldGroupNode: 4,
 };
 
 const FULL_LEVEL_GAP = 520;
