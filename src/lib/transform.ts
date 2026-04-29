@@ -386,7 +386,7 @@ function buildIdentityHubsAndEdges(
   const edges: Edge<RelationshipEdgeData>[] = [];
 
   namespaceToSchemas.forEach((schemas, namespace) => {
-    if (schemas.length < 2) return;
+    if (schemas.length < 1) return;
     const hubId = `identity-${namespace}`;
     nodes.push({
       id: hubId,

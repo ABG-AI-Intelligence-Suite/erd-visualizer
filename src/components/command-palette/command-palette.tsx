@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useReactFlow } from "@xyflow/react";
 import { Search, FileText, Hash, Type, Focus, Download, Keyboard } from "lucide-react";
 import {
   CommandDialog,
@@ -37,12 +36,12 @@ export function CommandPalette() {
   const rawNodes = useCanvasStore((s) => s.rawNodes);
   const setSelectedNode = useCanvasStore((s) => s.setSelectedNode);
   const setFocusNode = useCanvasStore((s) => s.setFocusNode);
+  const setScrollToNode = useCanvasStore((s) => s.setScrollToNode);
   const setExportDialogOpen = useCanvasStore((s) => s.setExportDialogOpen);
   const setShortcutsDialogOpen = useCanvasStore((s) => s.setShortcutsDialogOpen);
 
   const [query, setQuery] = useState("");
   const { search } = useSearchIndex(rawNodes);
-  const { setCenter } = useReactFlow();
 
   const results = useMemo(() => search(query), [search, query]);
 
@@ -57,13 +56,13 @@ export function CommandPalette() {
   }, [results]);
 
   const navigateToNode = useCallback(
-    (nodeId: string, posX: number, posY: number) => {
+    (nodeId: string) => {
       setSelectedNode(nodeId);
+      setScrollToNode(nodeId);
       setOpen(false);
       setQuery("");
-      setCenter(posX + 132, posY + 40, { zoom: 1.2, duration: 500 });
     },
-    [setSelectedNode, setOpen, setCenter]
+    [setSelectedNode, setScrollToNode, setOpen]
   );
 
   const focusOnNode = useCallback(
@@ -106,9 +105,7 @@ export function CommandPalette() {
                 <CommandItem
                   key={`${r.node.id}-${r.matchType}`}
                   value={`${r.label} ${r.matchDetail} ${r.entityType}`}
-                  onSelect={() =>
-                    navigateToNode(r.node.id, r.node.position.x, r.node.position.y)
-                  }
+                  onSelect={() => navigateToNode(r.node.id)}
                   className="flex items-center gap-2"
                 >
                   <span className={`w-2 h-2 rounded-full shrink-0 ${TYPE_COLORS[r.entityType] ?? "bg-gray-400"}`} />

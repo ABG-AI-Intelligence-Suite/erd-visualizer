@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, useDeferredValue } f
 import { useReactFlow } from "@xyflow/react";
 import { useCanvasStore } from "@/store/canvas-store";
 import type { Node } from "@xyflow/react";
+import { useSearchIndex } from "@/hooks/use-search-index";
 
 const MAX_SEARCH_RESULTS = 20;
 const TYPE_COLORS: Record<string, string> = {
@@ -30,25 +31,12 @@ export function SearchBar({ nodes }: SearchBarProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { setCenter } = useReactFlow();
 
-  const searchIndex = useMemo(() => {
-    const list: { node: Node; labelLower: string }[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i];
-      const label = (node.data as { label?: string })?.label ?? "";
-      list.push({ node, labelLower: label.toLowerCase() });
-    }
-    return list;
-  }, [nodes]);
+  const { search } = useSearchIndex(nodes);
 
-  const results = useMemo(() => {
-    if (deferredQuery.length < 2) return [];
-    const q = deferredQuery.toLowerCase();
-    const out: Node[] = [];
-    for (let i = 0; i < searchIndex.length && out.length < MAX_SEARCH_RESULTS; i++) {
-      if (searchIndex[i].labelLower.includes(q)) out.push(searchIndex[i].node);
-    }
-    return out;
-  }, [searchIndex, deferredQuery]);
+  const results = useMemo(
+    () => (deferredQuery.length >= 2 ? search(deferredQuery, MAX_SEARCH_RESULTS) : []),
+    [search, deferredQuery]
+  );
 
   const handleSelect = useCallback(
     (node: Node) => {
@@ -83,7 +71,7 @@ export function SearchBar({ nodes }: SearchBarProps) {
         e.preventDefault();
         setHighlightIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter" && results[highlightIndex]) {
-        handleSelect(results[highlightIndex]);
+        handleSelect(results[highlightIndex].node);
       } else if (e.key === "Escape") {
         setIsOpen(false);
         setSearchQuery("");
@@ -148,9 +136,8 @@ export function SearchBar({ nodes }: SearchBarProps) {
           ref={dropdownRef}
           className="absolute left-0 top-full z-50 mt-1.5 max-h-80 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
         >
-          {results.map((node, i) => {
-            const label = (node.data as { label?: string })?.label ?? node.id;
-            const entityType = (node.data as { entityType?: string })?.entityType ?? "";
+          {results.map((result, i) => {
+            const { node, label, entityType, matchType, matchDetail } = result;
             return (
               <div
                 key={node.id}
@@ -160,14 +147,21 @@ export function SearchBar({ nodes }: SearchBarProps) {
                 onMouseEnter={() => setHighlightIndex(i)}
               >
                 <div
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"
+                  className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5"
                   onClick={() => handleSelect(node)}
                 >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${TYPE_COLORS[node.type ?? ""] ?? "bg-gray-300"}`} />
-                  <span className="truncate text-slate-700">{label}</span>
-                  <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-500">
-                    {entityType}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${TYPE_COLORS[node.type ?? ""] ?? "bg-gray-300"}`} />
+                    <span className="truncate text-slate-700">{label}</span>
+                    <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-500">
+                      {entityType}
+                    </span>
+                  </div>
+                  {matchType !== "name" && (
+                    <span className="pl-4 text-[10px] text-slate-400 truncate">
+                      matched {matchType}: {matchDetail}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={(e) => {

@@ -9,12 +9,14 @@ import { NodeCard } from "./node-card";
 import { FieldList } from "./field-list";
 
 function FieldGroupNodeComponent({ id, data }: NodeProps) {
-  const d = data as unknown as FieldGroupNodeData;
+  const d = data as unknown as FieldGroupNodeData & { isFutureState?: boolean };
+  const isFutureState = Boolean(d.isFutureState);
   return (
     <NodeCard
       nodeId={id}
       entityType="fieldgroup"
       headerLabel="Field Group"
+      isFutureState={isFutureState}
       headerBadges={
         d.isSystem ? (
           <Badge variant="secondary" className="bg-white/20 text-white text-[9px] px-1 py-0 h-4 border-0">

@@ -9,21 +9,43 @@ import { NodeCard } from "./node-card";
 import { FieldList } from "./field-list";
 
 function SchemaNodeComponent({ id, data }: NodeProps) {
-  const d = data as unknown as SchemaNodeData;
+  const d = data as unknown as SchemaNodeData & {
+    isFutureState?: boolean;
+    isConflict?: boolean;
+  };
   const className = d.className?.split("/").pop() ?? "Unknown Class";
   const shortId = d.altId ?? d.schemaId;
+  const isFutureState = Boolean(d.isFutureState);
+  const isConflict = Boolean(d.isConflict);
+
+  const headerBadges = (
+    <>
+      {isFutureState && (
+        <Badge className="bg-teal-600 text-white text-[9px] px-1 py-0 h-4 border-0 shrink-0">
+          FUTURE STATE
+        </Badge>
+      )}
+      {isConflict && (
+        <Badge className="bg-amber-500 text-white text-[9px] px-1 py-0 h-4 border-0 shrink-0">
+          CONFLICT
+        </Badge>
+      )}
+      {d.isSystem && (
+        <Badge variant="secondary" className="bg-white/20 text-white text-[9px] px-1 py-0 h-4 border-0">
+          System
+        </Badge>
+      )}
+    </>
+  );
+
   return (
     <NodeCard
       nodeId={id}
       entityType="schema"
       headerLabel="Schema"
-      headerBadges={
-        d.isSystem ? (
-          <Badge variant="secondary" className="bg-white/20 text-white text-[9px] px-1 py-0 h-4 border-0">
-            System
-          </Badge>
-        ) : undefined
-      }
+      headerBadges={headerBadges}
+      isFutureState={isFutureState}
+      isConflict={isConflict}
       footer={<FieldList nodeId={id} fields={d.fields ?? []} accentColor="schema" />}
     >
       <Tooltip>

@@ -34,6 +34,10 @@ interface CanvasStore {
   focusExpansionStep: number;
   loadMoreFocusResults: () => void;
 
+  /** Navigate camera to a node without entering focus mode */
+  scrollToNodeId: string | null;
+  setScrollToNode: (id: string | null) => void;
+
   collapsed: Record<EntityFilterKey, boolean>;
   toggleCollapse: (type: EntityFilterKey) => void;
 
@@ -45,6 +49,14 @@ interface CanvasStore {
   setGraph: (nodes: Node[], edges: Edge[]) => void;
   mergeGraph: (nodes: Node[], edges: Edge[]) => void;
   removeEntityTypes: (entityTypes: string[]) => void;
+
+  // Future-state (Excel import) layer — session-only, independently togglable
+  futureStateNodes: Node[];
+  futureStateEdges: Edge[];
+  futureStateVisible: boolean;
+  importFutureState: (nodes: Node[], edges: Edge[]) => void;
+  clearFutureState: () => void;
+  toggleFutureStateVisible: () => void;
 
   // UI panels
   detailPanelPinned: boolean;
@@ -69,6 +81,7 @@ interface CanvasStore {
   setActiveSnapshotLabel: (label: string | null) => void;
 
   miroExportList: string[];
+  miroExportIds: Record<string, boolean>;
   addToMiroExport: (id: string) => void;
   removeFromMiroExport: (id: string) => void;
   clearMiroExport: () => void;
@@ -124,6 +137,9 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
       focusExpansionStep: state.focusNodeId ? state.focusExpansionStep + 1 : 0,
     })),
 
+  scrollToNodeId: null,
+  setScrollToNode: (id) => set({ scrollToNodeId: id }),
+
   collapsed: {
     datasets: false,
     schemas: false,
@@ -172,6 +188,20 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
       };
     }),
 
+  // ── Future-state layer ──────────────────────────────────────────────────
+  futureStateNodes: [],
+  futureStateEdges: [],
+  futureStateVisible: false,
+
+  importFutureState: (nodes, edges) =>
+    set({ futureStateNodes: nodes, futureStateEdges: edges, futureStateVisible: true }),
+
+  clearFutureState: () =>
+    set({ futureStateNodes: [], futureStateEdges: [], futureStateVisible: false }),
+
+  toggleFutureStateVisible: () =>
+    set((state) => ({ futureStateVisible: !state.futureStateVisible })),
+
   detailPanelPinned: false,
   toggleDetailPanelPinned: () =>
     set((state) => ({ detailPanelPinned: !state.detailPanelPinned })),
@@ -195,15 +225,18 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   setActiveSnapshotLabel: (label) => set({ activeSnapshotLabel: label }),
 
   miroExportList: [],
+  miroExportIds: {},
   addToMiroExport: (id) =>
-    set((s) => ({
-      miroExportList: s.miroExportList.includes(id)
-        ? s.miroExportList
-        : [...s.miroExportList, id],
-    })),
+    set((s) => {
+      if (s.miroExportIds[id]) return s;
+      return { miroExportList: [...s.miroExportList, id], miroExportIds: { ...s.miroExportIds, [id]: true } };
+    }),
   removeFromMiroExport: (id) =>
-    set((s) => ({ miroExportList: s.miroExportList.filter((i) => i !== id) })),
-  clearMiroExport: () => set({ miroExportList: [] }),
+    set((s) => {
+      const { [id]: _, ...rest } = s.miroExportIds;
+      return { miroExportList: s.miroExportList.filter((i) => i !== id), miroExportIds: rest };
+    }),
+  clearMiroExport: () => set({ miroExportList: [], miroExportIds: {} }),
 
   miroToast: null,
   setMiroToast: (msg) => set({ miroToast: msg }),

@@ -66,7 +66,7 @@ function FlowNodeComponent({ id, data }: NodeProps) {
           {d.targetSummary}
         </p>
       </div>
-      <Handle type="source" position={Position.Left} className="!bg-flow !w-2.5 !h-2.5" />
+      <Handle type="source" position={Position.Right} className="!bg-flow !w-2.5 !h-2.5" />
     </NodeCard>
   );
 }
