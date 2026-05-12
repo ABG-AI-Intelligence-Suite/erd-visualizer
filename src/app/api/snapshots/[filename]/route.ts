@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
+import { createClient } from "@/lib/supabase/server";
 
-const SNAPSHOTS_DIR = path.join(process.cwd(), "snapshots");
-const VALID_FILENAME = /^[a-f0-9]{8}-\d+\.local\.json$/;
+const VALID_FILENAME = /^[a-f0-9]{8}-\d+\.json$/;
 
 export async function GET(
   _req: Request,
@@ -15,13 +13,18 @@ export async function GET(
     return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
   }
 
-  try {
-    const filePath = path.join(SNAPSHOTS_DIR, filename);
-    const raw = await fs.readFile(filePath, "utf-8");
-    return new NextResponse(raw, {
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data, error } = await supabase.storage
+    .from("snapshots")
+    .download(`${user.id}/${filename}`);
+
+  if (error || !data) {
     return NextResponse.json({ error: "Snapshot not found" }, { status: 404 });
   }
+
+  const text = await data.text();
+  return new NextResponse(text, { headers: { "Content-Type": "application/json" } });
 }
